@@ -23,6 +23,21 @@ mingw32-make test                              # compila y ejecuta las pruebas
 - El estado interno usa `__declspec(selectany)`: una sola instancia aunque incluyas las
   cabeceras desde varios `.c` (`tests/test_multi_*.c`).
 
+## Compilar desde macOS/Linux hacia Windows (cross-compilation)
+
+En macOS: `brew install mingw-w64` (trae `x86_64-w64-mingw32-gcc` y `i686-w64-mingw32-gcc`).
+
+```
+make cross        # build/win64/*.exe  (64 bits, enlazados en estatico)
+make cross32      # build/win32/*.exe  (32 bits)
+make cross-zip    # dist/unixlib-windows.zip para copiar a Windows
+make cross-test   # ejecuta los .exe con Wine, si lo tienes instalado
+```
+
+Los `.exe` no necesitan DLL de MinGW (`-static`). Para compilar tu propio programa:
+`x86_64-w64-mingw32-gcc -Iinclude -Icompat -static prog.c -o prog.exe`. Wine es opcional y
+no siempre funciona en Apple Silicon: lo normal es copiar los `.exe` a Windows y ejecutarlos allí.
+
 ## Como funciona fork() (importante)
 
 El hijo es el mismo .exe relanzado con la misma linea de comandos, que **re-ejecuta
