@@ -1,4 +1,4 @@
-/* Segunda unidad de traduccion: usa las mismas cabeceras. */
+/* Second translation unit: uses the same headers. */
 #include <unixlib/unixlib.h>
 
 int child_in_other_tu(void)

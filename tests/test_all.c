@@ -1,4 +1,4 @@
-/* Pruebas de unixlib. Mismo codigo en Windows (TDM-GCC) y en Unix. */
+/* unixlib tests. Same code on Windows (TDM-GCC) and Unix. */
 #include <stdio.h>
 #include <string.h>
 #include <unixlib/unixlib.h>
@@ -9,7 +9,7 @@ static volatile sig_atomic_t got_usr1, got_alrm;
 static void on_usr1(int s) { (void)s; got_usr1++; }
 static void on_alrm(int s) { (void)s; got_alrm = 1; }
 static int failures;
-#define CHECK(c) do { if (!(c)) { printf("FAIL linea %d: %s\n", __LINE__, #c); \
+#define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); \
                                   failures++; } } while (0)
 
 int main(void)
@@ -17,15 +17,15 @@ int main(void)
   int st = 0, fd[2], fd2[2];
   pid_t pid, a, b;
 
-  /* 1. codigo de salida */
+  /* 1. exit status */
   pid = fork();
   if (pid == 0) _exit(7);
   CHECK(pid > 0);
   CHECK(waitpid(pid, &st, 0) == pid);
   CHECK(WIFEXITED(st) && WEXITSTATUS(st) == 7);
-  CHECK(wait(&st) == -1);                      /* ya no quedan hijos */
+  CHECK(wait(&st) == -1);                      /* no children left */
 
-  /* 2. pipe hijo -> padre, EOF y getppid */
+  /* 2. child -> parent pipe, EOF and getppid */
   CHECK(pipe(fd) == 0);
   pid = fork();
   if (pid == 0) {
@@ -52,7 +52,7 @@ int main(void)
   close(fd[0]);
   CHECK(wait(&st) == pid && WEXITSTATUS(st) == 0);
 
-  /* 3. dos hijos */
+  /* 3. two children */
   a = fork();
   if (a == 0) _exit(1);
   b = fork();
@@ -68,13 +68,13 @@ int main(void)
     CHECK(sum == 3);
   }
 
-  /* 4. kill(SIGKILL) a un hijo bloqueado en read() de un pipe */
+  /* 4. kill(SIGKILL) on a child blocked in read() on a pipe */
   CHECK(pipe(fd2) == 0);
   pid = fork();
   if (pid == 0) {
     char c;
     close(fd2[1]);
-    read(fd2[0], &c, 1);                       /* el padre no escribe */
+    read(fd2[0], &c, 1);                       /* the parent never writes */
     _exit(0);
   }
   CHECK(kill(pid, 0) == 0);
@@ -83,13 +83,13 @@ int main(void)
   CHECK(WIFSIGNALED(st) && WTERMSIG(st) == SIGKILL);
   close(fd2[0]); close(fd2[1]);
 
-  /* 5. SIGTERM cooperativo: el hijo ejecuta su handler y sale limpio */
+  /* 5. cooperative SIGTERM: the child runs its handler and exits cleanly */
   CHECK(pipe(fd) == 0);
   pid = fork();
   if (pid == 0) {
     signal(SIGTERM, on_term);
     close(fd[0]);
-    write(fd[1], "r", 1);                      /* "ya instale el handler" */
+    write(fd[1], "r", 1);                      /* "handler installed" */
     while (!got_term) usleep(1000);
     _exit(9);
   }
@@ -113,7 +113,7 @@ int main(void)
   close(fd2[0]); close(fd2[1]);
   CHECK((int)getuid() >= 0);
 
-  /* 7. sigaction + raise + sigprocmask (en el mismo proceso) */
+  /* 7. sigaction + raise + sigprocmask (in the same process) */
   {
     struct sigaction sa;
     sigset_t m;
@@ -121,16 +121,16 @@ int main(void)
     sa.sa_handler = on_usr1;
     CHECK(sigaction(SIGUSR1, &sa, NULL) == 0);
     CHECK(raise(SIGUSR1) == 0);
-    CHECK(got_usr1 == 1);                      /* sincrono */
+    CHECK(got_usr1 == 1);                      /* synchronous */
     sigemptyset(&m); sigaddset(&m, SIGUSR1);
     CHECK(sigprocmask(SIG_BLOCK, &m, NULL) == 0);
     raise(SIGUSR1);
-    CHECK(got_usr1 == 1);                      /* bloqueada: pendiente */
+    CHECK(got_usr1 == 1);                      /* blocked: pending */
     CHECK(sigprocmask(SIG_UNBLOCK, &m, NULL) == 0);
-    CHECK(got_usr1 == 2);                      /* entregada al desbloquear */
+    CHECK(got_usr1 == 2);                      /* delivered on unblock */
   }
 
-  /* 8. SIGUSR1 de padre a hijo; el hijo espera con pause() */
+  /* 8. SIGUSR1 from parent to child; the child waits in pause() */
   CHECK(pipe(fd) == 0);
   pid = fork();
   if (pid == 0) {
@@ -162,10 +162,10 @@ int main(void)
     CHECK(got_alrm == 1);
   }
 
-  /* 10. WNOHANG sin hijos */
+  /* 10. WNOHANG with no children */
   CHECK(waitpid(-1, &st, WNOHANG) == -1);
 
-  printf(failures ? "RESULTADO: %d fallo(s)\n" : "RESULTADO: todo OK\n",
+  printf(failures ? "RESULT: %d failure(s)\n" : "RESULT: all OK\n",
          failures);
   return failures ? 1 : 0;
 }

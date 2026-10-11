@@ -1,7 +1,7 @@
 #ifndef UNIXLIB_UNIXLIB_H
 #define UNIXLIB_UNIXLIB_H
 
-/* Cabecera paraguas: fork + pipes + signals + System V IPC. */
+/* Umbrella header: fork + pipes + signals + System V IPC. */
 
 #include <unixlib/fork.h>
 #include <unixlib/pipes.h>

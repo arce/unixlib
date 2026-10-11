@@ -2,36 +2,36 @@
 #define UNIXLIB_IPC_H
 
 /* ================================================================
- *  unixlib/ipc.h - base comun de System V IPC (shm.h, sem.h, msg.h).
+ *  unixlib/ipc.h - common base of System V IPC (shm.h, sem.h, msg.h).
  *
- *  Windows no tiene IPC de System V. Aqui cada objeto (segmento,
- *  conjunto de semaforos, cola de mensajes) es un FILE MAPPING con
- *  nombre derivado de la key:
+ *  Windows has no System V IPC. Here every object (segment,
+ *  semaphore set, message queue) is a FILE MAPPING whose
+ *  name is derived from the key:
  *
- *      Local\unixlib_<tipo>_k<key>[_g<n>]      (mapping)
- *      ...\_m   mutex nombrado   ...\_e   evento nombrado
+ *      Local\unixlib_<type>_k<key>[_g<n>]      (mapping)
+ *      ...\_m   named mutex      ...\_e   named event
  *
- *  - Todos los procesos que usen la misma key ven el mismo objeto
- *    (como en Unix, aunque no esten emparentados).
- *  - IPC_PRIVATE crea un objeto con nombre unico; los hijos lo
- *    reencuentran por el replay de fork().
- *  - IPC_RMID marca el objeto como borrado: una nueva key igual crea
- *    un objeto nuevo (generacion siguiente), aunque algun proceso aun
- *    conserve abierto el viejo. Windows lo libera al cerrar el ultimo
- *    handle (al terminar el ultimo proceso).
+ *  - All processes that use the same key see the same object
+ *    (as on Unix, even if they are not related).
+ *  - IPC_PRIVATE creates an object with a unique name; children find
+ *    it again through fork()'s replay.
+ *  - IPC_RMID marks the object as deleted: a new, equal key creates
+ *    a new object (next generation), even if some process still
+ *    keeps the old one open. Windows frees it when the last
+ *    handle is closed (when the last process ends).
  *
- *  fork() y el replay: el hijo vuelve a ejecutar desde main() las
- *  llamadas anteriores al fork. Para que no destruyan el estado ya
- *  compartido, mientras ufork_replaying() es verdadero:
- *    - shmget/semget/msgget abren el objeto existente (no lo recrean).
+ *  fork() and the replay: the child executes again from main() the
+ *  calls made before the fork. So that they do not destroy the state
+ *  that is already shared, while ufork_replaying() is true:
+ *    - shmget/semget/msgget open the existing object (they do not recreate it).
  *    - semop, msgsnd, msgrcv, semctl(SETVAL/SETALL/IPC_RMID),
- *      shmctl(IPC_RMID), msgctl(IPC_RMID) NO hacen nada.
- *    - shmat devuelve una vista PRIVADA (copy-on-write): las escrituras
- *      repetidas (*shm = 0; sprintf(shm,...)) no tocan el segmento real.
- *      Al terminar el replay la vista se reemplaza, en la MISMA
- *      direccion, por la vista compartida.
+ *      shmctl(IPC_RMID), msgctl(IPC_RMID) do NOTHING.
+ *    - shmat returns a PRIVATE (copy-on-write) view: the repeated
+ *      writes (*shm = 0; sprintf(shm,...)) do not touch the real segment.
+ *      When the replay ends the view is replaced, at the SAME
+ *      address, by the shared view.
  *
- *  Header-only: static inline + estado UNIXLIB_SHARED.
+ *  Header-only: static inline + UNIXLIB_SHARED state.
  * ================================================================ */
 
 #ifdef _WIN32
@@ -47,7 +47,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* ---- errno que mingw puede no definir ---- */
+/* ---- errno values mingw may not define ---- */
 #ifndef EIDRM
 #  define EIDRM 111
 #endif
@@ -64,7 +64,7 @@
 #  define ERANGE 34
 #endif
 
-/* ---- permisos (sys/stat.h de mingw ya trae S_IRUSR/S_IWUSR) ---- */
+/* ---- permissions (mingw's sys/stat.h already has S_IRUSR/S_IWUSR) ---- */
 #ifndef S_IRUSR
 #  define S_IRUSR 0400
 #  define S_IWUSR 0200
@@ -81,7 +81,7 @@
 #  define S_IRWXU 0700
 #endif
 
-/* ---- tipos y constantes de <sys/ipc.h> ---- */
+/* ---- types and constants of <sys/ipc.h> ---- */
 #ifndef UNIXLIB_KEY_T_DEFINED
 #  define UNIXLIB_KEY_T_DEFINED
 typedef int key_t;
@@ -103,13 +103,13 @@ struct ipc_perm {
   unsigned short __seq;
 };
 
-/* ftok(): mismo papel que en Unix (no necesita ficheros reales). */
+/* ftok(): same role as on Unix (does not need real files). */
 static inline key_t uipc_ftok(const char *path, int id)
 {
   struct _stat64 st;
   unsigned long long ino = 0;
   if (!path || _stat64(path, &st) != 0) return (key_t)-1;
-  /* Windows no da inodo: mezclar tiempo de creacion y tamaño. */
+  /* Windows gives no inode: mix creation time and size. */
   ino = (unsigned long long)st.st_ctime * 31u + (unsigned long long)st.st_size;
   return (key_t)(((unsigned)(id & 0xff) << 24) | (unsigned)(ino & 0xffffff));
 }
@@ -122,25 +122,25 @@ static inline int uipc_getpagesize(void)
 }
 
 /* ================================================================
- *  Cabecera comun (primeros UIPC__HDR bytes de cada mapping)
+ *  Common header (first UIPC__HDR bytes of every mapping)
  * ================================================================ */
 #define UIPC__HDR       128
 #define UIPC__MAX_OBJS  64
 #define UIPC__MAX_GEN   16
-#define UIPC__WAIT_MS   200        /* red de seguridad ante despertares perdidos */
+#define UIPC__WAIT_MS   200        /* safety net against lost wake-ups */
 
 enum { UIPC_SHM = 0, UIPC_SEM = 1, UIPC_MSG = 2, UIPC__NKINDS = 3 };
 
 typedef struct uipc__hdr {
-  volatile LONG ready;      /* 0 hasta que el creador termina de inicializar */
+  volatile LONG ready;      /* 0 until the creator finishes initializing */
   volatile LONG deleted;    /* IPC_RMID */
   LONG          kind;
   LONG          key;
   LONG64        size;       /* shm: bytes; sem: nsems; msg: qbytes */
   volatile LONG nattch;
   LONG          cpid;
-  LONG          lpid;       /* ultimo pid que opero (otras: lspid) */
-  LONG          lrpid;      /* msg: ultimo pid que recibio */
+  LONG          lpid;       /* last pid that operated (msg: lspid) */
+  LONG          lrpid;      /* msg: last pid that received */
   LONG          mode;
   LONG64        atime;      /* shm: shmat | sem: semop | msg: msgsnd */
   LONG64        dtime;      /* shm: shmdt | msg: msgrcv */
@@ -152,14 +152,14 @@ typedef struct uipc__obj {
   int        used;
   int        kind;
   key_t      key;
-  int        local_deleted;   /* RMID visto por este proceso */
+  int        local_deleted;   /* RMID seen by this process */
   HANDLE     map;
   HANDLE     mx;              /* mutex  (sem/msg) */
   HANDLE     ev;              /* evento (sem/msg) */
-  uipc__hdr *hdr;             /* vista compartida (cabecera, o todo) */
+  uipc__hdr *hdr;             /* shared view (header, or everything) */
   char       name[96];
-  int        nviews;          /* shm: vistas de datos abiertas */
-  volatile LONG users;        /* sem/msg: llamadas en curso en este proceso */
+  int        nviews;          /* shm: open data views */
+  volatile LONG users;        /* sem/msg: calls in progress in this process */
 } uipc__obj;
 
 UNIXLIB_SHARED SRWLOCK   uipc__lock = SRWLOCK_INIT;
@@ -187,7 +187,7 @@ static inline void uipc__name(char *out, size_t n, int kind, key_t key,
     snprintf(out, n, "Local\\unixlib_%s_k%08x_g%d", uipc__kname(kind), (unsigned)key, gen);
 }
 
-/* ---- cierre de las vistas/handles de una entrada ---- */
+/* ---- closing the views/handles of an entry ---- */
 static inline void uipc__release(uipc__obj *o)
 {
   if (o->hdr) UnmapViewOfFile(o->hdr);
@@ -197,7 +197,7 @@ static inline void uipc__release(uipc__obj *o)
   memset(o, 0, sizeof *o);
 }
 
-/* ---- apertura de sincronizacion (mutex+evento) de un objeto ---- */
+/* ---- opening the synchronization (mutex+event) of an object ---- */
 static inline int uipc__open_sync(uipc__obj *o)
 {
   char nm[128];
@@ -208,7 +208,7 @@ static inline int uipc__open_sync(uipc__obj *o)
   return o->mx && o->ev;
 }
 
-/* Espera (acotada) a que el creador termine de inicializar. */
+/* Waits (bounded) for the creator to finish initializing. */
 static inline int uipc__wait_ready(uipc__hdr *h)
 {
   for (int i = 0; i < 5000; ++i) {
@@ -218,21 +218,21 @@ static inline int uipc__wait_ready(uipc__hdr *h)
   return h->ready != 0;
 }
 
-/* Intenta mapear la cabecera/todo; devuelve NULL si falla. */
+/* Tries to map the header/everything; returns NULL on failure. */
 static inline uipc__hdr *uipc__map_hdr(HANDLE map, size_t bytes)
 {
   return (uipc__hdr *)MapViewOfFile(map, FILE_MAP_ALL_ACCESS, 0, 0, bytes);
 }
 
 /* ----------------------------------------------------------------
- *  uipc__acquire: busca/crea el objeto (kind,key) y lo registra.
- *    total  : bytes del mapping al CREARLO (incluye UIPC__HDR)
- *    hbytes : bytes a mapear para la vista de control (0 = todo)
- *    size   : valor a guardar en hdr->size (solo al crear)
- *    check  : size pedido para validar contra el existente
- *  Devuelve id (>=1) o -1 con errno.
- *  *created = 1 si lo creo este proceso (para que el llamador
- *  inicialice el contenido antes de publicar con uipc__publish()).
+ *  uipc__acquire: finds/creates the object (kind,key) and registers it.
+ *    total  : bytes of the mapping when CREATING it (includes UIPC__HDR)
+ *    hbytes : bytes to map for the control view (0 = all)
+ *    size   : value to store in hdr->size (only when creating)
+ *    check  : requested size, to validate against the existing one
+ *  Returns id (>=1) or -1 with errno.
+ *  *created = 1 if this process created it (so that the caller
+ *  initializes the contents before publishing with uipc__publish()).
  * ---------------------------------------------------------------- */
 static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
                                 size_t hbytes, LONG64 size, LONG64 check,
@@ -251,7 +251,7 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
     if (!uipc__objs[kind][i].used) { slot = i; break; }
   if (slot < 0) { errno = ENOSPC; goto done; }
 
-  /* mismo objeto ya abierto en este proceso */
+  /* same object already open in this process */
   if (!priv) {
     for (int i = 0; i < UIPC__MAX_OBJS; ++i) {
       uipc__obj *e = &uipc__objs[kind][i];
@@ -273,8 +273,8 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
   int existed = 0;
 
   if (priv) {
-    /* Nombre determinista para que el hijo (replay) lo reencuentre:
-     * creador = el propio proceso, o el padre mientras se repite. */
+    /* Deterministic name so that the child (replay) finds it again:
+    * creator = this very process, or the parent while replaying. */
     unsigned creator = (ufork_replaying() && ufork__ppid) ? (unsigned)ufork__ppid
                                                           : (unsigned)GetCurrentProcessId();
     long seq = (long)uipc__privseq[kind]++;
@@ -285,7 +285,7 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
     if (!map) { errno = ENOMEM; goto fail; }
     existed = (GetLastError() == ERROR_ALREADY_EXISTS);
   } else {
-    /* 1) existe alguno vivo en alguna generacion? */
+    /* 1) is there a live one in any generation? */
     for (int g = 0; g < UIPC__MAX_GEN && !map; ++g) {
       uipc__name(o->name, sizeof o->name, kind, key, g, 0, 0, 0);
       HANDLE m = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, o->name);
@@ -296,7 +296,7 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
     }
     if (!map) {
       if (!(flags & IPC_CREAT)) { errno = ENOENT; goto fail; }
-      /* 2) crear en la primera generacion libre */
+      /* 2) create in the first free generation */
       for (int g = 0; g < UIPC__MAX_GEN && !map; ++g) {
         uipc__name(o->name, sizeof o->name, kind, key, g, 0, 0, 0);
         HANDLE m = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE,
@@ -304,7 +304,7 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
                                       (DWORD)(total & 0xffffffffu), o->name);
         if (!m) { errno = ENOMEM; goto fail; }
         if (GetLastError() != ERROR_ALREADY_EXISTS) { map = m; existed = 0; break; }
-        /* otro proceso lo creo justo ahora: usarlo si sigue vivo */
+        /* another process just created it: use it if it is still alive */
         uipc__hdr *t = uipc__map_hdr(m, hbytes);
         if (t && uipc__wait_ready(t) && !t->deleted) { map = m; h = t; existed = 1; }
         else { if (t) UnmapViewOfFile(t); CloseHandle(m); }
@@ -315,7 +315,7 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
   o->map = map;
 
   if (existed && priv) {
-    /* IPC_PRIVATE reencontrado (replay en el hijo) */
+    /* IPC_PRIVATE found again (replay in the child) */
     h = uipc__map_hdr(map, hbytes);
     if (!h || !uipc__wait_ready(h)) { errno = ENOENT; goto fail; }
   }
@@ -336,7 +336,7 @@ static inline int uipc__acquire(int kind, key_t key, int flags, size_t total,
     h->cpid = (LONG)GetCurrentProcessId();
     h->mode = flags & 0777;
     h->ctime_ = uipc__now();
-    *created = 1;       /* el llamador inicializa y luego uipc__publish() */
+    *created = 1;       /* the caller initializes and then calls uipc__publish() */
   }
   if (kind != UIPC_SHM && !uipc__open_sync(o)) { errno = ENOMEM; goto fail; }
 
@@ -358,7 +358,7 @@ static inline void uipc__publish(uipc__obj *o)
   InterlockedExchange(&o->hdr->ready, 1);
 }
 
-/* Entrada por id; NULL (errno EINVAL) si no existe. */
+/* Entry by id; NULL (errno EINVAL) if it does not exist. */
 static inline uipc__obj *uipc__get(int kind, int id)
 {
   uipc__obj *o = NULL;
@@ -370,23 +370,23 @@ static inline uipc__obj *uipc__get(int kind, int id)
   return o;
 }
 
-/* ---- exclusion mutua y espera sobre el objeto (sem/msg) ---- */
+/* ---- mutual exclusion and waiting on the object (sem/msg) ---- */
 static inline void uipc__lock_obj(uipc__obj *o)
 {
-  WaitForSingleObject(o->mx, INFINITE);      /* WAIT_ABANDONED: tomado igualmente */
+  WaitForSingleObject(o->mx, INFINITE);      /* WAIT_ABANDONED: acquired anyway */
 }
 static inline void uipc__unlock_obj(uipc__obj *o) { ReleaseMutex(o->mx); }
 
-/* Con el mutex tomado: lo suelta, espera un cambio y lo vuelve a tomar. */
+/* With the mutex held: releases it, waits for a change and takes it again. */
 static inline void uipc__sleep_obj(uipc__obj *o)
 {
   SignalObjectAndWait(o->mx, o->ev, UIPC__WAIT_MS, FALSE);
   WaitForSingleObject(o->mx, INFINITE);
 }
-/* Con el mutex tomado: avisa a los que esperan. */
+/* With the mutex held: notifies the waiters. */
 static inline void uipc__wake_obj(uipc__obj *o) { PulseEvent(o->ev); }
 
-/* ---- marcar borrado (IPC_RMID) ---- */
+/* ---- mark as deleted (IPC_RMID) ---- */
 static inline void uipc__mark_deleted(uipc__obj *o)
 {
   InterlockedExchange(&o->hdr->deleted, 1);
@@ -394,7 +394,7 @@ static inline void uipc__mark_deleted(uipc__obj *o)
   if (o->ev) PulseEvent(o->ev);
 }
 
-/* ---- operaciones en curso (para liberar tras IPC_RMID sin carreras) ---- */
+/* ---- operations in progress (to free after IPC_RMID without races) ---- */
 static inline void uipc__enter(uipc__obj *o) { InterlockedIncrement(&o->users); }
 static inline void uipc__leave(uipc__obj *o)
 {
@@ -404,7 +404,7 @@ static inline void uipc__leave(uipc__obj *o)
     ReleaseSRWLockExclusive(&uipc__lock);
   }
 }
-/* IPC_RMID de sem/msg: marca y libera cuando no queden llamadas en curso. */
+/* IPC_RMID for sem/msg: marks and frees when no calls are left in progress. */
 static inline void uipc__remove(uipc__obj *o)
 {
   uipc__mark_deleted(o);
@@ -419,7 +419,7 @@ static inline void uipc__remove(uipc__obj *o)
 #  define ftok(p, i)     uipc_ftok((p), (i))
 #endif
 
-#else /* ---------------- no Windows: sistema real ---------------- */
+#else /* ---------------- not Windows: the real system ---------------- */
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/stat.h>

@@ -2,24 +2,24 @@
 #define UNIXLIB_MSG_H
 
 /* ================================================================
- *  unixlib/msg.h - colas de mensajes System V (msgget/msgsnd/
+ *  unixlib/msg.h - System V message queues (msgget/msgsnd/
  *  msgrcv/msgctl).
  *
- *  Cada cola es un file mapping con una arena de registros
- *  [longitud, tipo, datos], protegida por un mutex nombrado; emisores
- *  y receptores bloqueados esperan en un evento nombrado.
+ *  Each queue is a file mapping with an arena of records
+ *  [length, type, data], protected by a named mutex; blocked senders
+ *  and receivers wait on a named event.
  *
- *  Semantica como en Linux:
- *    - msgsz excluye el campo 'long type' inicial; el texto empieza en
- *      (char*)msgp + sizeof(long)  (en Windows long mide 4 bytes).
- *    - msgrcv: msgtyp 0 = primero; >0 = primero de ese tipo (o distinto
- *      de ese tipo con MSG_EXCEPT); <0 = el de menor tipo <= |msgtyp|.
+ *  Linux semantics:
+ *    - msgsz excludes the initial 'long type' field; the text starts at
+ *      (char*)msgp + sizeof(long)  (on Windows long is 4 bytes).
+ *    - msgrcv: msgtyp 0 = first; >0 = first of that type (or different
+ *      from that type with MSG_EXCEPT); <0 = the lowest type <= |msgtyp|.
  *    - IPC_NOWAIT -> EAGAIN (msgsnd, cola llena) / ENOMSG (msgrcv).
- *    - Mensaje mayor que msgsz: E2BIG, o truncado con MSG_NOERROR.
- *    - Capacidad por defecto 16384 bytes de datos (msg_qbytes),
- *      mensaje maximo 8192 bytes.
- *  Diferencia: un msgrcv()/msgsnd() bloqueado no se interrumpe con
- *  señales (sin EINTR).
+ *    - Message larger than msgsz: E2BIG, or truncated with MSG_NOERROR.
+ *    - Default capacity 16384 bytes of data (msg_qbytes),
+ *      maximum message 8192 bytes.
+ *  Difference: a blocked msgrcv()/msgsnd() is not interrupted by
+ *  signals (no EINTR).
  *
  *  API prefijada: umsg_get / umsg_snd / umsg_rcv / umsg_ctl.
  *  Macros POSIX: msgget msgsnd msgrcv msgctl.
@@ -55,9 +55,9 @@ struct msqid_ds {
 
 typedef struct umsg__q {
   LONG qnum;
-  LONG cbytes;     /* bytes de datos en la cola */
-  LONG qbytes;     /* limite de cbytes */
-  LONG used;       /* bytes ocupados en la arena (con cabeceras) */
+  LONG cbytes;     /* bytes of data in the queue */
+  LONG qbytes;     /* limit for cbytes */
+  LONG used;       /* bytes used in the arena (with headers) */
   LONG pad[4];
 } umsg__q;
 
@@ -96,7 +96,7 @@ static inline int umsg_snd(int id, const void *msgp, size_t msgsz, int flags)
 {
   uipc__obj *o = uipc__get(UIPC_MSG, id);
   if (!o) return -1;
-  if (uipc__rep()) return 0;                 /* replay: el padre ya lo envio */
+  if (uipc__rep()) return 0;                 /* replay: the parent already sent it */
   if (!msgp) { errno = EFAULT; return -1; }
 
   long type;
@@ -139,7 +139,7 @@ static inline ssize_t umsg_rcv(int id, void *msgp, size_t msgsz, long msgtyp, in
 {
   uipc__obj *o = uipc__get(UIPC_MSG, id);
   if (!o) return -1;
-  if (uipc__rep()) return 0;                 /* replay: el padre ya lo recibio */
+  if (uipc__rep()) return 0;                 /* replay: the parent already received it */
   if (!msgp) { errno = EFAULT; return -1; }
 
   umsg__q *q = umsg__qp(o);
@@ -151,7 +151,7 @@ static inline ssize_t umsg_rcv(int id, void *msgp, size_t msgsz, long msgtyp, in
   for (;;) {
     if (o->hdr->deleted) { errno = EIDRM; rc = -1; break; }
 
-    /* buscar el mensaje que corresponde */
+    /* find the matching message */
     LONG off = 0, best = -1;
     LONG besttype = 0;
     while (off < q->used) {
@@ -162,7 +162,7 @@ static inline ssize_t umsg_rcv(int id, void *msgp, size_t msgsz, long msgtyp, in
       else if (msgtyp > 0)  match = (flags & MSG_EXCEPT) ? (r.type != msgtyp) : (r.type == msgtyp);
       else                  match = (r.type <= -msgtyp);
       if (match) {
-        if (msgtyp >= 0) { best = off; break; }          /* el primero */
+        if (msgtyp >= 0) { best = off; break; }          /* the first one */
         if (best < 0 || r.type < besttype) { best = off; besttype = r.type; }
       }
       off += umsg__recsz(r.len);
@@ -205,7 +205,7 @@ static inline int umsg_ctl(int id, int cmd, struct msqid_ds *buf)
 
   switch (cmd) {
   case IPC_RMID:
-    if (uipc__rep()) return 0;               /* replay: lo hara el padre */
+    if (uipc__rep()) return 0;               /* replay: the parent will do it */
     uipc__remove(o);
     return 0;
   case IPC_STAT:

@@ -1,6 +1,6 @@
-/* Pruebas de shm.h / sem.h / msg.h. Mismo codigo en Windows (TDM-GCC)
- * y en Unix.  El padre comprueba y el resultado sale por el codigo de
- * salida de cada hijo. */
+/* Tests for shm.h / sem.h / msg.h. Same code on Windows (TDM-GCC)
+* and Unix.  The parent checks and the result is reported through the
+* exit status of each child. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +14,7 @@
 union semun { int val; struct semid_ds *buf; unsigned short *array; };
 
 static int failures;
-#define CHECK(c) do { if (!(c)) { printf("FAIL linea %d: %s\n", __LINE__, #c); \
+#define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); \
                                   failures++; } } while (0)
 
 struct m { long type; char text[32]; };
@@ -31,24 +31,24 @@ int main(void)
   pid_t pid;
   struct m mm;
 
-  /* 1. shm escrita ANTES del fork se hereda; el replay del hijo no la pisa */
+  /* 1. shm written BEFORE the fork is inherited; the child's replay does not clobber it */
   {
     int sid = shmget(0x5501, getpagesize(), IPC_CREAT | S_IRUSR | S_IWUSR);
     int qid = msgget(0x5502, IPC_CREAT | S_IRUSR | S_IWUSR);
     CHECK(sid != -1 && qid != -1);
     int *shm = (int *)shmat(sid, NULL, 0);
     CHECK(shm != (int *)-1);
-    shm[0] = 0;                      /* el hijo lo repite en el replay */
+    shm[0] = 0;                      /* the child repeats this during the replay */
     shm[1] = 7;
     pid = fork();
     if (pid == 0) {
-      msgrcv(qid, &mm, MSZ, 1, 0);   /* espera a que el padre escriba 42 */
+      msgrcv(qid, &mm, MSZ, 1, 0);   /* waits for the parent to write 42 */
       int ok = (shm[0] == 42 && shm[1] == 7);
-      shm[2] = 99;                   /* el hijo escribe despues del fork */
+      shm[2] = 99;                   /* the child writes after the fork */
       shmdt(shm);
       _exit(ok ? 0 : 1);
     }
-    shm[0] = 42;                     /* tras el fork */
+    shm[0] = 42;                     /* after the fork */
     mm.type = 1; strcpy(mm.text, "go");
     CHECK(msgsnd(qid, &mm, MSZ, IPC_NOWAIT) == 0);
     CHECK(waitpid(pid, &st, 0) == pid);
@@ -59,7 +59,7 @@ int main(void)
     CHECK(shmdt(shm) == 0);
     CHECK(shmctl(sid, IPC_RMID, NULL) == 0);
     CHECK(msgctl(qid, IPC_RMID, NULL) == 0);
-    /* tras RMID, la misma key crea un segmento nuevo y a cero */
+    /* after RMID, the same key creates a new, zeroed segment */
     int sid2 = shmget(0x5501, 64, IPC_CREAT | S_IRUSR | S_IWUSR);
     int *p2 = (int *)shmat(sid2, NULL, 0);
     CHECK(p2 != (int *)-1 && p2[0] == 0 && p2[1] == 0);
@@ -67,7 +67,7 @@ int main(void)
     shmctl(sid2, IPC_RMID, NULL);
   }
 
-  /* 2. semaforo como mutex: 2 x 1000 incrementos */
+  /* 2. semaphore as a mutex: 2 x 1000 increments */
   {
     int sem = semget(0x5511, 1, IPC_CREAT | S_IRUSR | S_IWUSR);
     sem_set(sem, 0, 1);
@@ -89,7 +89,7 @@ int main(void)
     semctl(sem, 0, IPC_RMID);
   }
 
-  /* 3. semop: IPC_NOWAIT, semop atomico y GETALL */
+  /* 3. semop: IPC_NOWAIT, atomic semop and GETALL */
   {
     int sem = semget(0x5521, 2, IPC_CREAT | S_IRUSR | S_IWUSR);
     sem_set(sem, 0, 1);
@@ -97,14 +97,14 @@ int main(void)
     struct sembuf two[2] = {{0, -1, 0}, {1, -1, IPC_NOWAIT}};
     errno = 0;
     CHECK(semop(sem, two, 2) == -1 && errno == EAGAIN);
-    CHECK(semctl(sem, 0, GETVAL) == 1);        /* nada se aplico */
+    CHECK(semctl(sem, 0, GETVAL) == 1);        /* nothing was applied */
     unsigned short all[2] = {0, 0};
     union semun a; a.array = all;
     CHECK(semctl(sem, 0, GETALL, a) == 0 && all[0] == 1 && all[1] == 0);
     semctl(sem, 0, IPC_RMID);
   }
 
-  /* 4. mensajes: tipos, NOWAIT, E2BIG, orden entre tipos */
+  /* 4. messages: types, NOWAIT, E2BIG, ordering between types */
   {
     int q = msgget(0x5531, IPC_CREAT | S_IRUSR | S_IWUSR);
     errno = 0;
@@ -122,7 +122,7 @@ int main(void)
     msgctl(q, IPC_RMID, NULL);
   }
 
-  /* 5. cadena de 2 hijos con 2 colas (ejercicio del tutorial) */
+  /* 5. chain of 2 children with 2 queues (tutorial exercise) */
   {
     int q1 = msgget(0x5541, IPC_CREAT | S_IRUSR | S_IWUSR);
     int q2 = msgget(0x5542, IPC_CREAT | S_IRUSR | S_IWUSR);
@@ -148,6 +148,6 @@ int main(void)
     msgctl(q2, IPC_RMID, NULL);
   }
 
-  printf(failures ? "RESULTADO IPC: %d fallo(s)\n" : "RESULTADO IPC: todo OK\n", failures);
+  printf(failures ? "IPC RESULT: %d failure(s)\n" : "IPC RESULT: all OK\n", failures);
   return failures ? 1 : 0;
 }

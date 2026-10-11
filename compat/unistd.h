@@ -1,5 +1,5 @@
-/* Shim opcional (-Icompat): en Windows, <unistd.h> tambien aporta fork,
- * wait, getppid, pipe, getuid, kill, pause, alarm... como en Unix. */
+/* Optional shim (-Icompat): on Windows, <unistd.h> also provides fork,
+ * wait, getppid, pipe, getuid, kill, pause, alarm... as on Unix. */
 #ifndef UNIXLIB_COMPAT_UNISTD_H
 #define UNIXLIB_COMPAT_UNISTD_H
 

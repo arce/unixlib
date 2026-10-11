@@ -1,4 +1,4 @@
-/* Shim opcional (-Icompat): <sys/wait.h> en Windows. */
+/* Optional shim (-Icompat): <sys/wait.h> on Windows. */
 #ifndef UNIXLIB_COMPAT_SYS_WAIT_H
 #define UNIXLIB_COMPAT_SYS_WAIT_H
 

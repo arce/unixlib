@@ -1,4 +1,4 @@
-/* Shim opcional (-Icompat): en Windows, <signal.h> tambien aporta
+/* Optional shim (-Icompat): on Windows, <signal.h> also provides
  * sigaction, kill, SIGUSR1... */
 #ifndef UNIXLIB_COMPAT_SIGNAL_H
 #define UNIXLIB_COMPAT_SIGNAL_H

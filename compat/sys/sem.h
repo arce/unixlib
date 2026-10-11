@@ -1,4 +1,4 @@
-/* Shim opcional (-Icompat): <sys/sem.h> en Windows (System V IPC). */
+/* Optional shim (-Icompat): <sys/sem.h> on Windows (System V IPC). */
 #ifndef UNIXLIB_COMPAT_SYS_SEM_H
 #define UNIXLIB_COMPAT_SYS_SEM_H
 

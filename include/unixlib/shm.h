@@ -2,21 +2,21 @@
 #define UNIXLIB_SHM_H
 
 /* ================================================================
- *  unixlib/shm.h - memoria compartida System V (shmget/shmat/
- *  shmdt/shmctl) sobre file mappings con nombre.  Ver ipc.h.
+ *  unixlib/shm.h - System V shared memory (shmget/shmat/
+ *  shmdt/shmctl) on top of named file mappings.  See ipc.h.
  *
- *  - El segmento es una vista directa del mapping: lo que escribe un
- *    proceso lo ven los demas al instante (sin copias).
- *  - shmat() devuelve una direccion alineada a 128 bytes (no a pagina).
- *  - En el replay de fork() el hijo recibe una vista privada
- *    (copy-on-write) que se sustituye, en la misma direccion, por la
- *    compartida cuando fork() devuelve 0 (ver ipc.h).
- *  - shm_nattch es aproximado: un proceso que termina sin shmdt()
- *    no lo decrementa.
+ *  - The segment is a direct view of the mapping: whatever one
+ *    process writes the others see instantly (no copies).
+ *  - shmat() returns an address aligned to 128 bytes (not to a page).
+ *  - During fork()'s replay the child gets a private view
+ *    (copy-on-write) that is replaced, at the same address, by the
+ *    shared one when fork() returns 0 (see ipc.h).
+ *  - shm_nattch is approximate: a process that ends without shmdt()
+ *    does not decrement it.
  *
- *  API prefijada: ushm_get / ushm_at / ushm_dt / ushm_ctl.
- *  Macros POSIX: shmget shmat shmdt shmctl (UNIXLIB_NO_POSIX_NAMES
- *  las desactiva).
+ *  Prefixed API: ushm_get / ushm_at / ushm_dt / ushm_ctl.
+ *  POSIX macros: shmget shmat shmdt shmctl (UNIXLIB_NO_POSIX_NAMES
+ *  disables them).
  * ================================================================ */
 
 #include <unixlib/ipc.h>
@@ -43,15 +43,15 @@ struct shmid_ds {
 
 typedef struct ushm__att {
   int   used;
-  int   slot;      /* indice en uipc__objs[UIPC_SHM] */
+  int   slot;      /* index in uipc__objs[UIPC_SHM] */
   int   ro;
-  int   priv;      /* vista copy-on-write del replay */
-  void *base;      /* inicio de la vista (cabecera) */
+  int   priv;      /* copy-on-write view of the replay */
+  void *base;      /* start of the view (header) */
 } ushm__att;
 
 UNIXLIB_SHARED ushm__att ushm__atts[USHM__MAX_ATT] = {{0}};
 
-/* Fin del replay: vistas privadas -> compartidas, misma direccion. */
+/* End of the replay: private views -> shared, same address. */
 static inline void ushm__remap_private(void)
 {
   AcquireSRWLockExclusive(&uipc__lock);
@@ -66,8 +66,8 @@ static inline void ushm__remap_private(void)
       if (!p) Sleep(0);
     }
     if (!p) {
-      fprintf(stderr, "unixlib: no se pudo remapear la memoria compartida "
-                      "en %p (error %lu)\n", a->base, GetLastError());
+      fprintf(stderr, "unixlib: could not remap the shared memory "
+                      "at %p (error %lu)\n", a->base, GetLastError());
       ExitProcess(1);
     }
     a->priv = 0;
@@ -83,7 +83,7 @@ static inline int ushm_get(key_t key, size_t size, int flags)
   int id = uipc__acquire(UIPC_SHM, key, flags, UIPC__HDR + sz, UIPC__HDR,
                          (LONG64)sz, (LONG64)size, &o, &created);
   if (id < 0) return -1;
-  if (created) uipc__publish(o);    /* el mapping ya viene a cero */
+  if (created) uipc__publish(o);    /* the mapping already comes zeroed */
   return id;
 }
 
@@ -154,7 +154,7 @@ static inline int ushm_ctl(int id, int cmd, struct shmid_ds *buf)
   if (!o) return -1;
   switch (cmd) {
   case IPC_RMID:
-    if (uipc__rep()) return 0;          /* replay: ya lo hara el padre */
+    if (uipc__rep()) return 0;          /* replay: the parent will do it */
     AcquireSRWLockExclusive(&uipc__lock);
     uipc__mark_deleted(o);
     if (o->nviews == 0) uipc__release(o);

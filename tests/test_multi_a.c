@@ -1,4 +1,4 @@
-/* Cabeceras incluidas desde dos .c: debe enlazar y compartir estado. */
+/* Headers included from two .c files: must link and share state. */
 #include <stdio.h>
 #include <unixlib/unixlib.h>
 

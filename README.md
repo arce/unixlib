@@ -1,124 +1,126 @@
 # unixlib
 
-`fork`, `wait/waitpid`, `getppid`, `getuid`, `pipe`, señales (`signal`, `sigaction`,
-`kill`, `raise`, `pause`, `alarm`, `sigprocmask`...) y **System V IPC** (memoria compartida,
-semaforos y colas de mensajes) para Windows con
-**TDM-GCC / MinGW-w64** (>= 9.2, Windows 7+). **Header-only.** En Unix las cabeceras
-reenvian a POSIX.
+`fork`, `wait/waitpid`, `getppid`, `getuid`, `pipe`, signals (`signal`, `sigaction`,
+`kill`, `raise`, `pause`, `alarm`, `sigprocmask`...) and **System V IPC** (shared memory,
+semaphores and message queues) for Windows with
+**TDM-GCC / MinGW-w64** (>= 9.2, Windows 7+). **Header-only.** On Unix the headers
+forward to POSIX.
 
-## Uso
+## Usage
 
 ```
 gcc -Iinclude -Icompat prog.c -o prog.exe      # TDM-GCC
-mingw32-make test                              # compila y ejecuta las pruebas
+mingw32-make test                              # builds and runs the tests
 ```
 
-- `-Iinclude`: `#include <unixlib/unixlib.h>` (o `fork.h`, `pipes.h`, `signals.h`, `shm.h`, `sem.h`, `msg.h`).
-- `-Icompat` (opcional): hace que el codigo Unix compile **sin modificar**:
+- `-Iinclude`: `#include <unixlib/unixlib.h>` (or `fork.h`, `pipes.h`, `signals.h`, `shm.h`, `sem.h`, `msg.h`).
+- `-Icompat` (optional): makes Unix code compile **unmodified**:
   `<unistd.h>`, `<signal.h>`, `<sys/wait.h>`, `<sys/shm.h>`, `<sys/sem.h>`,
-  `<sys/msg.h>` y `<sys/ipc.h>` aportan tambien `fork`, `pipe`, `wait`,
-  `sigaction`, `kill`, `pause`, `alarm`... (`tests/tutorial/` lo comprueba).
-- Los nombres POSIX son macros; `-DUNIXLIB_NO_POSIX_NAMES` deja solo `ufork_*`,
-  `upipe_*`, `usig_*`.
-- El estado interno usa `__declspec(selectany)`: una sola instancia aunque incluyas las
-  cabeceras desde varios `.c` (`tests/test_multi_*.c`).
+  `<sys/msg.h>` and `<sys/ipc.h>` also provide `fork`, `pipe`, `wait`,
+  `sigaction`, `kill`, `pause`, `alarm`... (`tests/tutorial/` checks this).
+- POSIX names are macros; `-DUNIXLIB_NO_POSIX_NAMES` leaves only `ufork_*`,
+  `upipe_*`, `usig_*` (and `ushm_*`, `usem_*`, `umsg_*`).
+- The internal state uses `__declspec(selectany)`: a single instance even if you include the
+  headers from several `.c` files (`tests/test_multi_*.c`).
+- `tests/tutorial/` holds the code of the course tutorials verbatim (it is in Spanish on purpose).
 
-## Compilar desde macOS/Linux hacia Windows (cross-compilation)
+## Cross-compiling from macOS/Linux to Windows
 
-En macOS: `brew install mingw-w64` (trae `x86_64-w64-mingw32-gcc` y `i686-w64-mingw32-gcc`).
+On macOS: `brew install mingw-w64` (provides `x86_64-w64-mingw32-gcc` and `i686-w64-mingw32-gcc`).
 
 ```
-make cross        # build/win64/*.exe  (64 bits, enlazados en estatico)
-make cross32      # build/win32/*.exe  (32 bits)
-make cross-zip    # dist/unixlib-windows.zip para copiar a Windows
-make cross-test   # ejecuta los .exe con Wine, si lo tienes instalado
+make cross        # build/win64/*.exe  (64-bit, statically linked)
+make cross32      # build/win32/*.exe  (32-bit)
+make cross-zip    # dist/unixlib-windows.zip, to copy to Windows
+make cross-test   # runs the .exe files under Wine, if you have it installed
 ```
 
-Los `.exe` no necesitan DLL de MinGW (`-static`). Para compilar tu propio programa:
-`x86_64-w64-mingw32-gcc -Iinclude -Icompat -static prog.c -o prog.exe`. Wine es opcional y
-no siempre funciona en Apple Silicon: lo normal es copiar los `.exe` a Windows y ejecutarlos allí.
+The `.exe` files need no MinGW DLLs (`-static`). To build your own program:
+`x86_64-w64-mingw32-gcc -Iinclude -Icompat -static prog.c -o prog.exe`. Wine is optional and
+does not always work on Apple Silicon: the usual way is to copy the `.exe` files to Windows and run them there.
 
-## Como funciona fork() (importante)
+## How fork() works (important)
 
-El hijo es el mismo .exe relanzado con la misma linea de comandos, que **re-ejecuta
-main() desde el principio**. Su fork() devuelve 0; hasta llegar alli, los fork() previos
-devuelven un pid ficticio, pipe() devuelve los pipes heredados y stdout/stderr se
-silencian (`ufork_replaying()`). Consecuencias: el codigo anterior a fork() debe ser
-determinista y sin efectos externos (archivos, red, entrada del usuario, rand sin semilla
-fija); las variables no se copian; `getpid()` previo al fork da el pid del hijo.
-fork() anidados (el hijo hace fork) funcionan con el mismo mecanismo.
+The child is the same .exe launched again with the same command line, and it **re-executes
+main() from the beginning**. Its fork() returns 0; until it gets there, earlier fork() calls
+return a fake pid, pipe() returns the inherited pipes and stdout/stderr are
+silenced (`ufork_replaying()`). Consequences: the code before fork() must be
+deterministic and free of external effects (files, network, user input, rand without a fixed
+seed); variables are not copied; `getpid()` before the fork gives the child's pid.
+Nested fork() (the child forks) works with the same mechanism.
 
 ## Pipes
 
-fds reales del CRT: `read/write/close/dup/dup2` funcionan sin envoltorios (tambien
-`dup2(fd[1], STDOUT_FILENO)`), y `read()` devuelve 0 en EOF. Solo los pipes creados con
-`pipe()` y aun abiertos pasan al hijo; archivos y sockets no. Cierra en cada proceso los
-extremos que no uses, o el lector no vera EOF.
+Real CRT fds: `read/write/close/dup/dup2` work without wrappers (also
+`dup2(fd[1], STDOUT_FILENO)`), and `read()` returns 0 at EOF. Only the pipes created with
+`pipe()` and still open are passed to the child; files and sockets are not. Close the ends
+you do not use in each process, or the reader will not see EOF.
 
-## Procesos
+## Processes
 
-- Estado de wait: `WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG`, `WNOHANG`.
-- Huerfanos: el hijo sobrevive al padre y `getppid()` devuelve 1.
-  `-DUFORK_KILL_ORPHANS`: los hijos mueren con el padre (Job Object).
-- Zombies: no existen en Windows; `wait()` funciona pero `ps` no los muestra.
-- `getuid()/geteuid()/getgid()` devuelven 1000 (valor fijo).
-- Maximo 64 hijos simultaneos por proceso, 128 pipes.
+- wait status: `WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG`, `WNOHANG`.
+- Orphans: the child outlives the parent and `getppid()` returns 1.
+  `-DUFORK_KILL_ORPHANS`: children die with the parent (Job Object).
+- Zombies: they do not exist on Windows; `wait()` works but `ps` does not show them.
+- `getuid()/geteuid()/getgid()` return 1000 (fixed value).
+- At most 64 simultaneous children per process, 128 pipes.
 
-## Señales
+## Signals
 
-Numeros como Linux: SIGHUP 1, SIGINT 2, SIGQUIT 3, SIGKILL 9, SIGUSR1 10, SIGUSR2 12,
-SIGALRM 14, SIGTERM 15, SIGCHLD 17, SIGCONT 18. Capturables con `signal/sigaction`: esas
-(salvo SIGKILL), SIGABRT, y SIGILL/SIGFPE/SIGSEGV via CRT. Ctrl+C/Break = SIGINT;
-cerrar consola/logoff/apagado = SIGTERM.
+Numbers as on Linux: SIGHUP 1, SIGINT 2, SIGQUIT 3, SIGKILL 9, SIGUSR1 10, SIGUSR2 12,
+SIGALRM 14, SIGTERM 15, SIGCHLD 17, SIGCONT 18. Catchable with `signal/sigaction`: those
+(except SIGKILL), SIGABRT, and SIGILL/SIGFPE/SIGSEGV through the CRT. Ctrl+C/Break = SIGINT;
+closing the console/logoff/shutdown = SIGTERM.
 
-`kill(pid, sig)` funciona hacia hijos de fork() y hacia cualquier proceso que use
-unixlib y ya haya instalado un handler (o llamado a `pause/sigsuspend/alarm`). Sin buzon
-se aplica la accion por defecto (terminar; SIGCHLD/SIGCONT se ignoran). Una señal enviada
-a un hijo que aun arranca queda pendiente (se entrega con 100 ms de margen,
-`-DUFORK_TERM_GRACE_MS=n`). `kill(-pid, s)` actua sobre `pid`; `kill(0, s)` sobre todos los
-demas procesos con buzon unixlib.
+`kill(pid, sig)` works towards children of fork() and towards any process that uses
+unixlib and has already installed a handler (or called `pause/sigsuspend/alarm`). Without a
+mailbox the default action applies (terminate; SIGCHLD/SIGCONT are ignored). A signal sent
+to a child that is still starting up stays pending (it is delivered with a 100 ms margin,
+`-DUFORK_TERM_GRACE_MS=n`). `kill(-pid, s)` acts on `pid`; `kill(0, s)` on all the
+other processes with a unixlib mailbox.
 
-Diferencias con POSIX: el handler corre en un hilo vigilante (no interrumpe al principal)
-y las entregas son en serie; la mascara es de todo el proceso; `sa_mask`, `SA_RESTART`,
-`SA_RESETHAND`, `SA_NODEFER` se ignoran; `siginfo_t` solo trae `si_signo`; SIGCHLD no se
-genera solo; SIGSTOP no esta soportada; sin handler, SIGTERM/SIGUSR1... terminan el
-proceso y `wait()` lo informa como señal.
+Differences from POSIX: the handler runs in a watcher thread (it does not interrupt the main one)
+and deliveries are serial; the mask is process-wide; `sa_mask`, `SA_RESTART`,
+`SA_RESETHAND`, `SA_NODEFER` are ignored; `siginfo_t` only carries `si_signo`; SIGCHLD is not
+generated on its own; SIGSTOP is not supported; without a handler, SIGTERM/SIGUSR1... terminate the
+process and `wait()` reports it as a signal.
 
-## IPC de System V (shm.h, sem.h, msg.h)
+## System V IPC (shm.h, sem.h, msg.h)
 
 `shmget/shmat/shmdt/shmctl`, `semget/semop/semctl`, `msgget/msgsnd/msgrcv/msgctl`, `ftok`,
 `getpagesize`, `key_t`, `IPC_CREAT/IPC_EXCL/IPC_NOWAIT/IPC_RMID/IPC_STAT`, `SETVAL`,
-`struct sembuf`, `MSG_NOERROR/MSG_EXCEPT`. Cada objeto es un *file mapping* con nombre
-derivado de la key (`Local\unixlib_shm_k000003e7`...), asi que procesos con la misma key
-(incluso no emparentados) ven el mismo objeto. Un mutex y un evento nombrados bloquean y
-despiertan a los procesos en `semop`/`msgsnd`/`msgrcv`.
+`struct sembuf`, `MSG_NOERROR/MSG_EXCEPT`. Every object is a *file mapping* whose name is
+derived from the key (`Local\unixlib_shm_k000003e7`...), so processes with the same key
+(even unrelated ones) see the same object. A named mutex and event block and
+wake up the processes in `semop`/`msgsnd`/`msgrcv`.
 
-- `union semun` **no** la define la libreria (igual que glibc): la define tu programa.
-- Tras `IPC_RMID`, la misma key crea un objeto nuevo y a cero aunque otro proceso aun
-  conserve abierto el viejo.
-- `IPC_PRIVATE` funciona; los hijos reencuentran el objeto por el replay de fork().
-- Colas: 16384 bytes de datos, mensaje maximo 8192 (como Linux). `msgsz` no incluye el
-  `long type`, que en Windows mide 4 bytes.
+- `union semun` is **not** defined by the library (like glibc): your program defines it.
+- After `IPC_RMID`, the same key creates a new, zeroed object even if another process still
+  keeps the old one open.
+- `IPC_PRIVATE` works; children find the object again through fork()'s replay.
+- Queues: 16384 bytes of data, maximum message 8192 (as on Linux). `msgsz` does not include the
+  `long type`, which is 4 bytes on Windows.
 
-**Replay de fork() y IPC.** El hijo repite las llamadas anteriores al fork. Para que no
-destruyan el estado compartido, mientras `ufork_replaying()` es verdadero:
-`shmget/semget/msgget` abren el objeto existente; `semop`, `msgsnd`, `msgrcv`,
-`semctl(SETVAL/SETALL/IPC_RMID)`, `shmctl(IPC_RMID)` y `msgctl(IPC_RMID)` no hacen nada;
-`shmat` da una vista **privada** (copy-on-write), de modo que `*shm = 0;` o
-`sprintf(shm, ...)` repetidos no tocan el segmento real. Al terminar el replay esa vista
-se sustituye, **en la misma direccion**, por la compartida. Limites: un `msgrcv` hecho antes
-del fork no se reproduce (el hijo no obtiene ese dato); hasta 64 objetos vivos por tipo y
-128 vistas por proceso; IPC_PRIVATE solo se hereda un nivel (hijo directo).
+**fork() replay and IPC.** The child repeats the calls made before the fork. So that they do not
+destroy the shared state, while `ufork_replaying()` is true:
+`shmget/semget/msgget` open the existing object; `semop`, `msgsnd`, `msgrcv`,
+`semctl(SETVAL/SETALL/IPC_RMID)`, `shmctl(IPC_RMID)` and `msgctl(IPC_RMID)` do nothing;
+`shmat` gives a **private** (copy-on-write) view, so repeated `*shm = 0;` or
+`sprintf(shm, ...)` do not touch the real segment. When the replay ends that view is
+replaced, **at the same address**, by the shared one. Limits: a `msgrcv` made before the
+fork is not reproduced (the child does not get that data); up to 64 live objects per type and
+128 views per process; IPC_PRIVATE is only inherited one level (direct child).
 
-Diferencias con Unix: `SEM_UNDO` se ignora; un `semop/msgrcv` bloqueado no se interrumpe
-con señales (sin `EINTR`); `shmat` devuelve direcciones alineadas a 128 bytes, no a
-pagina; `shm_nattch` es aproximado (un proceso que muere sin `shmdt` no lo decrementa);
-no hay permisos ni `ipcs/ipcrm`; los objetos desaparecen cuando termina el ultimo proceso
-que los tiene abiertos.
+Differences from Unix: `SEM_UNDO` is ignored; a blocked `semop/msgrcv` is not interrupted
+by signals (no `EINTR`); `shmat` returns addresses aligned to 128 bytes, not to a
+page; `shm_nattch` is approximate (a process that dies without `shmdt` does not decrement it);
+there are no permissions and no `ipcs/ipcrm`; objects disappear when the last process that
+has them open ends.
 
-## Estado de la verificacion
+## Verification status
 
-Compila sin avisos (`-Wall -Wextra`) para x86_64 e i686 Windows con cabeceras mingw-w64,
-incluido enlazado con dos unidades de traduccion y el codigo de los tutoriales (procesos,
-señales, pipes e IPC) sin modificar. **No se ha ejecutado en Windows**: corre `mingw32-make test` (`test_all.exe` y `test_ipc.exe`) en tu TDM-GCC; `test_ipc` comprueba
-el caso mas delicado: que el replay del hijo no pise la memoria compartida ya modificada.
+It compiles without warnings (`-Wall -Wextra`) for x86_64 and i686 Windows with mingw-w64 headers,
+including linking with two translation units and the tutorial code (processes,
+signals, pipes and IPC) unmodified. **It has not been run on Windows**: run `mingw32-make test`
+(`test_all.exe` and `test_ipc.exe`) with your TDM-GCC; `test_ipc` checks the most delicate case:
+that the child's replay does not clobber shared memory that has already been modified.

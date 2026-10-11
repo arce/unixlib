@@ -2,41 +2,41 @@
 #define UNIXLIB_FORK_H
 
 /* ================================================================
- *  unixlib/fork.h - fork/wait/waitpid/getppid sobre Windows.
+ *  unixlib/fork.h - fork/wait/waitpid/getppid on Windows.
  *
- *  Modelo ("re-ejecución determinista"):
- *    Windows no puede clonar un proceso. fork() lanza de nuevo el
- *    mismo .exe con la misma línea de comandos; el hijo re-ejecuta
- *    main() desde el principio y la llamada fork() correspondiente
- *    devuelve 0 en él. Mientras el hijo "se pone al día":
- *      - las llamadas a fork() anteriores devuelven un pid ficticio,
- *      - las llamadas a pipe() devuelven los pipes heredados,
- *      - stdout/stderr se silencian (ver ufork_replaying()).
- *    Por tanto el código previo al fork() debe ser determinista y
- *    sin efectos secundarios externos (archivos, red, rand sin
- *    semilla fija...). Las variables NO se copian.
+ *  Model ("deterministic re-execution"):
+ *    Windows cannot clone a process. fork() launches the very same
+ *    .exe again with the same command line; the child re-executes
+ *    main() from the beginning and the matching fork() call
+ *    returns 0 in it. While the child "catches up":
+ *      - earlier fork() calls return a fake pid,
+ *      - pipe() calls return the inherited pipes,
+ *      - stdout/stderr are silenced (see ufork_replaying()).
+ *    Therefore the code before fork() must be deterministic and
+ *    free of external side effects (files, network, rand without a
+ *    fixed seed...). Variables are NOT copied.
  *
- *  Header-only: no hay que enlazar nada. Todas las funciones son
- *  static inline y el estado compartido usa UNIXLIB_SHARED (selectany).
+ *  Header-only: nothing to link. All functions are
+ *  static inline and the shared state uses UNIXLIB_SHARED (selectany).
  *
  *  API prefijada: ufork_fork, ufork_wait, ufork_waitpid,
  *                 ufork_getppid, ufork_replaying
- *  Nombres POSIX (fork(), wait(s), waitpid(p,s,o), getppid()) se
- *  activan como macros salvo que definas UNIXLIB_NO_POSIX_NAMES.
- *  Tambien: getuid()/geteuid()/getgid() (valor fijo 1000: Windows no
- *  tiene uid). getpid() y _exit() son los del CRT de MinGW.
+ *  POSIX names (fork(), wait(s), waitpid(p,s,o), getppid()) are
+ *  enabled as macros unless you define UNIXLIB_NO_POSIX_NAMES.
+ *  Also: getuid()/geteuid()/getgid() (fixed value 1000: Windows has no
+ *  uid). getpid() and _exit() are the MinGW CRT ones.
  *
- *  Huerfanos: como en POSIX, un hijo sobrevive a su padre y su getppid()
- *  pasa a devolver 1. Compila con -DUFORK_KILL_ORPHANS para que los hijos
- *  mueren con el padre (Job Object).
+ *  Orphans: as in POSIX, a child outlives its parent and its getppid()
+ *  starts returning 1. Compile with -DUFORK_KILL_ORPHANS so that children
+ *  die with the parent (Job Object).
  *
- *  Compilador objetivo: TDM-GCC / MinGW-w64 (>= 9.2, Windows Vista+).
+ *  Target compiler: TDM-GCC / MinGW-w64 (>= 9.2, Windows Vista+).
  * ================================================================ */
 
 #ifdef _WIN32
 
 #ifndef _WIN32_WINNT
-#  define _WIN32_WINNT 0x0601      /* Windows 7: listas de atributos, SRWLOCK */
+#  define _WIN32_WINNT 0x0601      /* Windows 7: attribute lists, SRWLOCK */
 #endif
 #ifndef WINVER
 #  define WINVER _WIN32_WINNT
@@ -56,15 +56,15 @@
 #include <sys/types.h>    /* pid_t */
 
 #ifndef UNIXLIB_SHARED
-   /* Estado compartido entre unidades de traduccion (header-only):
-    * COMDAT/selectany -> una sola instancia en el ejecutable. */
+   /* State shared between translation units (header-only):
+    * COMDAT/selectany -> a single instance in the executable. */
 #  define UNIXLIB_SHARED __declspec(selectany)
 #endif
 
 #ifndef WNOHANG
 #  define WNOHANG 1
 #endif
-/* Estado compatible con POSIX: (codigo << 8) o numero de señal. */
+/* POSIX-compatible status: (code << 8) or signal number. */
 #ifndef WIFEXITED
 #  define WIFEXITED(s)    (((s) & 0x7f) == 0)
 #  define WEXITSTATUS(s)  (((s) >> 8) & 0xff)
@@ -72,33 +72,33 @@
 #  define WTERMSIG(s)     ((s) & 0x7f)
 #endif
 
-/* Codigo de salida con el que se representa "muerto por la señal N". */
+/* Exit code used to represent "killed by signal N". */
 #define UFORK_SIGEXIT_BASE 0xDEAD0000UL
 #define UFORK_SIGEXIT(sig) (UFORK_SIGEXIT_BASE | (unsigned long)(sig))
 
 #include <unixlib/sigdefs.h>
-#include <unixlib/pipes.h>   /* registro de pipes heredables */
+#include <unixlib/pipes.h>   /* registry of inheritable pipes */
 
-/* ---- implementacion ---- */
-/* Huerfanos: por defecto sobreviven al padre (como en POSIX).
- * -DUFORK_KILL_ORPHANS los mata con el padre (Job Object).
- * -DUFORK_NO_QUIET_REPLAY: no silencia stdout/stderr durante el replay.
- * -DUFORK_TERM_GRACE_MS=n: margen (def. 100 ms) antes de entregar un
- *  SIGTERM llegado mientras el hijo aun arrancaba, para que main()
- *  alcance a instalar su handler. */
+/* ---- implementation ---- */
+/* Orphans: by default they outlive the parent (as in POSIX).
+ * -DUFORK_KILL_ORPHANS kills them with the parent (Job Object).
+ * -DUFORK_NO_QUIET_REPLAY: does not silence stdout/stderr during the replay.
+ * -DUFORK_TERM_GRACE_MS=n: margin (default 100 ms) before delivering a
+ *  SIGTERM that arrived while the child was still starting, so that main()
+ *  has time to install its handler. */
 #ifndef UFORK_TERM_GRACE_MS
 #  define UFORK_TERM_GRACE_MS 100
 #endif
 
-#define UFORK__MAX_KIDS   64              /* limite de WaitForMultipleObjects */
-#define UFORK__MAX_PATH_N 32              /* profundidad maxima de forks anidados */
+#define UFORK__MAX_KIDS   64              /* WaitForMultipleObjects limit */
+#define UFORK__MAX_PATH_N 32              /* maximum depth of nested forks */
 #define UFORK__FAKE_PID   ((pid_t)0x7fffffff)
 
 #ifndef STATUS_CONTROL_C_EXIT
 #  define STATUS_CONTROL_C_EXIT 0xC000013AUL
 #endif
 
-/* term/map/pend: buzon de señales del hijo, creado por el padre. */
+/* term/map/pend: the child's signal mailbox, created by the parent. */
 typedef struct { pid_t pid; HANDLE h; HANDLE term; HANDLE map;
                  volatile LONG *pend; } ufork__kid_t;
 
@@ -111,20 +111,20 @@ UNIXLIB_SHARED INIT_ONCE ufork__once = INIT_ONCE_STATIC_INIT;
 UNIXLIB_SHARED int ufork__is_child = 0;
 UNIXLIB_SHARED int ufork__replaying = 0;
 UNIXLIB_SHARED pid_t ufork__ppid = 0;
-UNIXLIB_SHARED int ufork__path[UFORK__MAX_PATH_N] = {0}; /* nº de llamada fork() que devuelve 0 */
+UNIXLIB_SHARED int ufork__path[UFORK__MAX_PATH_N] = {0}; /* number of the fork() call that returns 0 */
 UNIXLIB_SHARED int ufork__npath = 0;
-UNIXLIB_SHARED int ufork__calls = 0; /* llamadas a fork() hasta ahora */
+UNIXLIB_SHARED int ufork__calls = 0; /* fork() calls so far */
 UNIXLIB_SHARED int ufork__saved_out = -1;
 UNIXLIB_SHARED int ufork__saved_err = -1;
-UNIXLIB_SHARED HANDLE ufork__parent_h = 0;     /* handle del padre (hijo) */
-UNIXLIB_SHARED HANDLE ufork__sig_ev = 0;       /* buzon propio: evento */
-UNIXLIB_SHARED volatile LONG *ufork__sig_pend = 0;  /* bits pendientes */
+UNIXLIB_SHARED HANDLE ufork__parent_h = 0;     /* parent's handle (in the child) */
+UNIXLIB_SHARED HANDLE ufork__sig_ev = 0;       /* own mailbox: event */
+UNIXLIB_SHARED volatile LONG *ufork__sig_pend = 0;  /* pending bits */
 UNIXLIB_SHARED LONG   ufork__watcher_started = 0;
-/* signals.h lo fija; recibe cada señal desde el hilo vigilante. */
+/* signals.h sets it; receives every signal from the watcher thread. */
 typedef void (*ufork__deliver_fn)(int);
 UNIXLIB_SHARED ufork__deliver_fn ufork__deliver_hook = 0;
-/* Gancho opcional: se invoca en el hijo cuando termina el replay
- * (la ultima llamada a fork() devuelve 0). Lo usa shm.h. */
+/* Optional hook: called in the child when the replay ends
+ * (the last fork() call returns 0). Used by shm.h. */
 UNIXLIB_SHARED void (*ufork__replay_end_hook)(void) = 0;
 
 /* ---------------------------------------------------------------- */
@@ -146,7 +146,7 @@ static inline void ufork__quiet_begin(void)
 static inline void ufork__quiet_end(void)
 {
 #ifndef UFORK_NO_QUIET_REPLAY
-  fflush(NULL);                       /* lo pendiente del replay va a NUL */
+  fflush(NULL);                       /* whatever the replay left pending goes to NUL */
   if (ufork__saved_out >= 0) { _dup2(ufork__saved_out, 1); _close(ufork__saved_out); }
   if (ufork__saved_err >= 0) { _dup2(ufork__saved_err, 2); _close(ufork__saved_err); }
   ufork__saved_out = ufork__saved_err = -1;
@@ -174,14 +174,14 @@ static inline void ufork__parse_child_env(const WCHAR *v)
 }
 
 /* ---------------------------------------------------------------- */
-/* Buzon de señales entre procesos de unixlib. Cada proceso que puede
- * recibir señales tiene
- *    evento "Local\\unixlib_sev_<pid>"  (manual-reset)
- *    mapa   "Local\\unixlib_spd_<pid>"  (DWORD de bits pendientes)
- * Quien envia activa el bit y el evento; un hilo vigilante del
- * destinatario entrega la señal (handler o accion por defecto).
- * El padre crea el buzon del hijo ANTES de reanudarlo, asi que una señal
- * enviada mientras el hijo arranca queda pendiente y no se pierde. */
+/* Signal mailbox between unixlib processes. Every process that can
+ * receive signals has
+ *    event "Local\\unixlib_sev_<pid>"  (manual-reset)
+ *    map    "Local\\unixlib_spd_<pid>"  (DWORD of pending bits)
+ * The sender sets the bit and the event; a watcher thread of the
+ * recipient delivers the signal (handler or default action).
+ * The parent creates the child's mailbox BEFORE resuming it, so a signal
+ * sent while the child starts up stays pending and is not lost. */
 static inline void ufork__sig_names(WCHAR *ev, WCHAR *map, DWORD pid)
 {
   if (ev)  { _snwprintf(ev, 64, L"Local\\unixlib_sev_%lu", (unsigned long)pid);
@@ -209,7 +209,7 @@ static inline DWORD WINAPI ufork__sig_thread(LPVOID arg)
     if (WaitForSingleObject(ufork__sig_ev, INFINITE) != WAIT_OBJECT_0)
       return 0;
     ResetEvent(ufork__sig_ev);
-    if (ufork__replaying) {            /* llego durante el arranque: pendiente */
+    if (ufork__replaying) {            /* arrived during startup: pending */
       while (ufork__replaying) Sleep(5);
       Sleep(UFORK_TERM_GRACE_MS);
     }
@@ -240,7 +240,7 @@ static inline void ufork__start_sig_watcher(void)
   if (t) CloseHandle(t);
 }
 
-/* Deja `sig` en el buzon de `pid`. 1 = entregada; 0 = pid no tiene buzon. */
+/* Leaves `sig` in the mailbox of `pid`. 1 = delivered; 0 = pid has no mailbox. */
 static inline int ufork__send_signal(pid_t pid, int sig)
 {
   LONG bit = (LONG)(1UL << sig);
@@ -288,7 +288,7 @@ static inline BOOL CALLBACK ufork__init_cb(PINIT_ONCE o, PVOID p, PVOID *c)
     if (ufork__npath > 0) {
       ufork__is_child  = 1;
       ufork__replaying = 1;
-      /* CREATE_NEW_PROCESS_GROUP desactiva Ctrl+C: reactivarlo. */
+      /* CREATE_NEW_PROCESS_GROUP disables Ctrl+C: re-enable it. */
       SetConsoleCtrlHandler(NULL, FALSE);
       ufork__parent_h = OpenProcess(SYNCHRONIZE, FALSE, (DWORD)ufork__ppid);
       ufork__quiet_begin();
@@ -315,7 +315,7 @@ static inline void ufork__ensure_init(void)
   InitOnceExecuteOnce(&ufork__once, ufork__init_cb, NULL, NULL);
 }
 
-/* Se ejecuta antes de main() si este objeto esta enlazado. */
+/* Runs before main() if this object is linked in. */
 __attribute__((constructor)) static void ufork__ctor(void)
 {
   ufork__ensure_init();
@@ -342,7 +342,7 @@ static inline pid_t ufork_getppid(void)
 {
   ufork__ensure_init();
   if (ufork__is_child) {
-    /* Padre muerto -> huerfano: adoptado por "init" (pid 1), como en Unix. */
+    /* Dead parent -> orphan: adopted by "init" (pid 1), as on Unix. */
     if (!ufork__parent_h ||
         WaitForSingleObject(ufork__parent_h, 0) == WAIT_OBJECT_0)
       return 1;
@@ -384,8 +384,8 @@ static inline int ufork__ensure_job(void)
 #endif
 }
 
-/* Asigna el hijo al job; en Windows < 8 puede fallar si el padre ya esta
- * en un job: en ese caso se sigue sin la politica de huerfanos. */
+/* Assigns the child to the job; on Windows < 8 it can fail if the parent is already
+ * in a job: in that case it carries on without the orphan policy. */
 static inline void ufork__job_add(HANDLE proc)
 {
 #ifdef UFORK_KILL_ORPHANS
@@ -413,8 +413,8 @@ static inline void ufork__set_env_utf8(const WCHAR *name, const char *v)
   free(w);
 }
 
-/* Lanza el hijo cuyo fork() es la llamada numero `call`.
- * Devuelve su pid o -1 (errno). Con ufork__lock tomado. */
+/* Launches the child whose fork() is call number `call`.
+ * Returns its pid or -1 (errno). With ufork__lock held. */
 static inline pid_t ufork__do_spawn(int call)
 {
   pid_t result = -1;
@@ -423,10 +423,10 @@ static inline pid_t ufork__do_spawn(int call)
   if (!exe || !cmd) { errno = ENOMEM; goto out_free; }
   if (GetModuleFileNameW(NULL, exe, 32768) == 0) { errno = EINVAL; goto out_free; }
 
-  /* --- handles a heredar: pipes abiertos + stdio redirigido --- */
+  /* --- handles to inherit: open pipes + redirected stdio --- */
   HANDLE hs[UPIPE_MAX_HANDLES + 3];
   int nh = 0;
-  char *spec = upipe__prepare(hs, &nh);       /* toma el lock de pipes */
+  char *spec = upipe__prepare(hs, &nh);       /* takes the pipes lock */
 
   HANDLE sh[3] = { GetStdHandle(STD_INPUT_HANDLE),
                    GetStdHandle(STD_OUTPUT_HANDLE),
@@ -438,7 +438,7 @@ static inline pid_t ufork__do_spawn(int call)
   if (redirected) {
     for (int i = 0; i < 3; ++i) {
       if (sh[i] == NULL || sh[i] == INVALID_HANDLE_VALUE) continue;
-      if (ufork__std_is_console(sh[i])) continue;    /* consola: la hereda sola */
+      if (ufork__std_is_console(sh[i])) continue;    /* console: inherited on its own */
       if (!GetHandleInformation(sh[i], &sfl[i])) continue;
       if (SetHandleInformation(sh[i], HANDLE_FLAG_INHERIT,
                                HANDLE_FLAG_INHERIT)) {
@@ -450,7 +450,7 @@ static inline pid_t ufork__do_spawn(int call)
     }
   }
 
-  /* --- entorno que el hijo lee en ufork__init_cb() --- */
+  /* --- environment the child reads in ufork__init_cb() --- */
   {
     WCHAR path[32 * 12 + 32];
     int off = _snwprintf(path, 32, L"%lu", GetCurrentProcessId());
@@ -462,7 +462,7 @@ static inline pid_t ufork__do_spawn(int call)
     ufork__set_env_utf8(L"UFORK_PIPES", spec);
   }
 
-  /* --- lista de atributos con los handles permitidos --- */
+  /* --- attribute list with the allowed handles --- */
   STARTUPINFOEXW si;
   PROCESS_INFORMATION pi;
   ZeroMemory(&si, sizeof(si));
@@ -493,14 +493,14 @@ static inline pid_t ufork__do_spawn(int call)
     } else { free(al); al = NULL; }
   }
 
-  /* CREATE_NEW_PROCESS_GROUP: permite kill(hijo, SIGINT) (Ctrl+Break). */
+  /* CREATE_NEW_PROCESS_GROUP: allows kill(child, SIGINT) (Ctrl+Break). */
   DWORD flags = CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED;
   BOOL ok;
   if (al) {
     ok = CreateProcessW(exe, cmd, NULL, NULL, TRUE,
                         flags | EXTENDED_STARTUPINFO_PRESENT,
                         NULL, NULL, &si.StartupInfo, &pi);
-    if (!ok) {   /* p.ej. Win7 con handles de consola: heredar sin lista */
+    if (!ok) {   /* e.g. Win7 with console handles: inherit without a list */
       si.lpAttributeList = NULL;
       si.StartupInfo.cb  = sizeof(STARTUPINFOW);
       ok = CreateProcessW(exe, cmd, NULL, NULL, TRUE, flags,
@@ -520,7 +520,7 @@ static inline pid_t ufork__do_spawn(int call)
     if (smark[i])
       SetHandleInformation(sh[i], HANDLE_FLAG_INHERIT,
                            sfl[i] & HANDLE_FLAG_INHERIT);
-  upipe__restore();                           /* suelta el lock de pipes */
+  upipe__restore();                           /* releases the pipes lock */
   free(spec);
 
   if (!ok) { SetLastError(err); errno = EAGAIN; goto out_free; }
@@ -558,7 +558,7 @@ static inline pid_t ufork_fork(void)
   AcquireSRWLockExclusive(&ufork__lock);
   int n = ++ufork__calls;
 
-  /* Hijo poniendose al dia: no se lanza nada. */
+  /* Child catching up: nothing is launched. */
   if (ufork__is_child && n <= ufork__path[ufork__npath - 1]) {
     int mine = 0;
     for (int i = 0; i < ufork__npath; ++i) if (ufork__path[i] == n) mine = 1;
@@ -641,7 +641,7 @@ static inline pid_t ufork_wait(int *status)
   return ufork_waitpid(-1, status, 0);
 }
 
-/* Windows no tiene uid/gid: valor fijo, solo para portar codigo. */
+/* Windows has no uid/gid: fixed value, only to port code. */
 static inline unsigned ufork_getuid(void) { return 1000; }
 
 #ifndef UNIXLIB_NO_POSIX_NAMES

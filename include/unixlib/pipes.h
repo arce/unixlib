@@ -2,23 +2,23 @@
 #define UNIXLIB_PIPES_H
 
 /* ================================================================
- *  unixlib/pipes.h - pipe() con descriptores REALES del CRT.
+ *  unixlib/pipes.h - pipe() with REAL CRT descriptors.
  *
- *  Los fds devueltos son fds normales de MSVCRT: read(), write(),
- *  close(), dup(), dup2(), fdopen()... funcionan sin envoltorios,
- *  y read() devuelve 0 en EOF. Nada de tabla propia: no colisiona
- *  con stdin/stdout/stderr.
+ *  The returned fds are ordinary MSVCRT fds: read(), write(),
+ *  close(), dup(), dup2(), fdopen()... work without wrappers,
+ *  and read() returns 0 at EOF. No private table: it does not clash
+ *  with stdin/stdout/stderr.
  *
- *  Herencia: al llamar a fork(), solo los pipes creados con pipe()
- *  que sigan abiertos se pasan al hijo (lista explicita de handles,
- *  no se hereda nada mas). Archivos y sockets NO se heredan.
- *  Como en POSIX, cierra en cada proceso los extremos que no uses
- *  o el lector nunca vera EOF.
+ *  Inheritance: when fork() is called, only the pipes created with pipe()
+ *  that are still open are passed to the child (explicit handle list,
+ *  nothing else is inherited). Files and sockets are NOT inherited.
+ *  As in POSIX, close the ends you do not use in each process,
+ *  or the reader will never see EOF.
  *
  *  Header-only: static inline + estado UNIXLIB_SHARED.
  *
- *  API prefijada: upipe_pipe.  Macro POSIX: pipe(fd)
- *  (desactivar con UNIXLIB_NO_POSIX_NAMES).
+ *  Prefixed API: upipe_pipe.  POSIX macro: pipe(fd)
+ *  (disable with UNIXLIB_NO_POSIX_NAMES).
  * ================================================================ */
 
 #ifdef _WIN32
@@ -41,37 +41,37 @@
 #include <unistd.h>       /* read/write/close/dup2, STDIN_FILENO... */
 
 #ifndef UNIXLIB_SHARED
-   /* Estado compartido entre unidades de traduccion (header-only):
-    * COMDAT/selectany -> una sola instancia en el ejecutable. */
+   /* State shared between translation units (header-only):
+    * COMDAT/selectany -> a single instance in the executable. */
 #  define UNIXLIB_SHARED __declspec(selectany)
 #endif
 
 #define UPIPE_MAX_HANDLES 256
 
-/* Definida en unixlib/fork.h (se incluye al final de este archivo). */
+/* Defined in unixlib/fork.h (included at the end of this file). */
 static inline void ufork__ensure_init(void);
 
-/* ---- implementacion ---- */
+/* ---- implementation ---- */
 /* ----------------------------------------------------------------
- *  Registro de pipes creados con upipe_pipe(), en orden de creacion.
- *  - seq numera cada llamada a upipe_pipe() (para el replay del hijo).
- *  - Se guarda el HANDLE junto al fd para detectar extremos cerrados
- *    (close() es el del CRT y no pasa por aqui) o fds reutilizados.
+ *  Registry of pipes created with upipe_pipe(), in creation order.
+ *  - seq numbers every call to upipe_pipe() (for the child's replay).
+ *  - The HANDLE is stored next to the fd to detect closed ends
+ *    (close() is the CRT one and does not go through here) or reused fds.
  * ---------------------------------------------------------------- */
 #define UPIPE__REG_MAX 128
 
 typedef struct {
   unsigned seq;
-  int      fd[2];        /* [0]=lectura  [1]=escritura */
+  int      fd[2];        /* [0]=read  [1]=write */
   HANDLE   h[2];
 } upipe__reg_t;
 
 UNIXLIB_SHARED SRWLOCK upipe__lock = SRWLOCK_INIT;
 UNIXLIB_SHARED upipe__reg_t upipe__reg[UPIPE__REG_MAX] = {{0}};
 UNIXLIB_SHARED int upipe__nreg = 0;
-UNIXLIB_SHARED unsigned upipe__seq = 0; /* siguiente numero de pipe() */
+UNIXLIB_SHARED unsigned upipe__seq = 0; /* next pipe() number */
 
-/* Estado de upipe__prepare/upipe__restore. */
+/* State of upipe__prepare/upipe__restore. */
 UNIXLIB_SHARED HANDLE upipe__marked[UPIPE_MAX_HANDLES] = {0};
 UNIXLIB_SHARED DWORD upipe__marked_flags[UPIPE_MAX_HANDLES] = {0};
 UNIXLIB_SHARED int upipe__nmarked = 0;
@@ -84,7 +84,7 @@ static inline int upipe__end_open(int fd, HANDLE h)
   return GetFileType(h) == FILE_TYPE_PIPE;
 }
 
-/* Elimina entradas con ambos extremos cerrados. */
+/* Removes entries whose two ends are both closed. */
 static inline void upipe__reg_compact(void)
 {
   int j = 0;
@@ -97,7 +97,7 @@ static inline void upipe__reg_compact(void)
 }
 
 /* ----------------------------------------------------------------
- *  Hijo: pipes heredados indexados por seq.
+ *  Child: inherited pipes indexed by seq.
  * ---------------------------------------------------------------- */
 static inline int upipe_pipe(int fd[2])
 {
@@ -107,7 +107,7 @@ static inline int upipe_pipe(int fd[2])
   AcquireSRWLockExclusive(&upipe__lock);
   unsigned seq = upipe__seq++;
 
-  /* Replay: devuelve el pipe heredado que corresponde a esta llamada. */
+  /* Replay: returns the inherited pipe that matches this call. */
   for (int i = 0; i < upipe__nreg; ++i) {
     if (upipe__reg[i].seq == seq) {
       fd[0] = upipe__reg[i].fd[0];
@@ -126,11 +126,11 @@ static inline int upipe_pipe(int fd[2])
   }
 
   int p[2];
-  /* _O_NOINHERIT: nada se hereda salvo lo que fork() marque. */
+  /* _O_NOINHERIT: nothing is inherited except what fork() marks. */
   if (_pipe(p, 65536, _O_BINARY | _O_NOINHERIT) != 0) {
     upipe__seq--;
     ReleaseSRWLockExclusive(&upipe__lock);
-    return -1;                       /* errno ya lo fijo _pipe */
+    return -1;                       /* errno already set by _pipe */
   }
 
   upipe__reg_t *r = &upipe__reg[upipe__nreg++];
@@ -145,15 +145,15 @@ static inline int upipe_pipe(int fd[2])
 }
 
 /* ----------------------------------------------------------------
- *  Padre: serializa los pipes abiertos como
- *     "seq:rh:wh;"  (handles en hex, 0 = extremo cerrado)
+ *  Parent: serializes the open pipes as
+ *     "seq:rh:wh;"  (handles in hex, 0 = closed end)
  * ---------------------------------------------------------------- */
 static inline char *upipe__prepare(HANDLE *hs, int *nh)
 {
   *nh = 0;
   upipe__nmarked = 0;
 
-  AcquireSRWLockExclusive(&upipe__lock);   /* se libera en upipe__restore() */
+  AcquireSRWLockExclusive(&upipe__lock);   /* released in upipe__restore() */
 
   size_t cap = (size_t)upipe__nreg * 48 + 16;
   char *out = (char *)malloc(cap);
@@ -195,9 +195,9 @@ static inline void upipe__restore(void)
 }
 
 /* ----------------------------------------------------------------
- *  Hijo: abre fds del CRT sobre los handles heredados.
- *  Un extremo cerrado en el padre se sustituye por un fd a NUL, para
- *  que el close() que re-ejecuta el hijo siga siendo valido.
+ *  Child: opens CRT fds on the inherited handles.
+ *  An end closed in the parent is replaced by an fd to NUL, so that
+ *  the close() the child re-executes is still valid.
  * ---------------------------------------------------------------- */
 static inline int upipe__adopt(unsigned long long hv, int rdonly)
 {

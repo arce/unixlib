@@ -2,21 +2,21 @@
 #define UNIXLIB_SEM_H
 
 /* ================================================================
- *  unixlib/sem.h - semaforos System V (semget/semop/semctl).
+ *  unixlib/sem.h - System V semaphores (semget/semop/semctl).
  *
- *  Cada conjunto vive en un file mapping (valores, pids, contadores)
- *  protegido por un mutex nombrado; los procesos bloqueados esperan
- *  en un evento nombrado. semop() es atomico para todo el arreglo de
- *  operaciones, como en Unix.
+ *  Each set lives in a file mapping (values, pids, counters)
+ *  protected by a named mutex; blocked processes wait
+ *  on a named event. semop() is atomic for the whole array of
+ *  operations, as on Unix.
  *
- *  NO se define 'union semun': igual que glibc, la define el programa
- *  (el tutorial lo hace). semctl() lee su 4o argumento como una union
- *  del mismo tamaño ({int; puntero}).
+ *  'union semun' is NOT defined: like glibc, the program defines it
+ *  (the tutorial does). semctl() reads its 4th argument as a union
+ *  of the same size ({int; pointer}).
  *
- *  Diferencias con Unix:
- *    - SEM_UNDO se acepta pero se ignora (no se deshace al morir).
- *    - Un semop() bloqueado no se interrumpe con señales (sin EINTR).
- *    - Maximo 1024 semaforos por conjunto, valor maximo 32767.
+ *  Differences from Unix:
+ *    - SEM_UNDO is accepted but ignored (nothing is undone on exit).
+ *    - A blocked semop() is not interrupted by signals (no EINTR).
+ *    - At most 1024 semaphores per set, maximum value 32767.
  *
  *  API prefijada: usem_get / usem_op / usem_ctl.
  *  Macros POSIX: semget semop semctl.
@@ -58,7 +58,7 @@ typedef struct usem__s {
   volatile LONG zcnt;
 } usem__s;
 
-/* Argumento de semctl: mismo tamaño/ABI que 'union semun' del programa. */
+/* semctl argument: same size/ABI as the program's 'union semun'. */
 union usem__arg { int val; void *ptr; };
 
 static inline usem__s *usem__tab(uipc__obj *o)
@@ -76,7 +76,7 @@ static inline int usem_get(key_t key, int nsems, int flags)
                          UIPC__HDR + (size_t)n * sizeof(usem__s), 0,
                          (LONG64)n, (LONG64)nsems, &o, &created);
   if (id < 0) return -1;
-  if (created) uipc__publish(o);   /* valores a 0, como en Unix */
+  if (created) uipc__publish(o);   /* values start at 0, as on Unix */
   return id;
 }
 
@@ -84,7 +84,7 @@ static inline int usem_op(int id, struct sembuf *sops, size_t nsops)
 {
   uipc__obj *o = uipc__get(UIPC_SEM, id);
   if (!o) return -1;
-  if (uipc__rep()) return 0;                 /* replay: el padre ya lo hizo */
+  if (uipc__rep()) return 0;                 /* replay: the parent already did it */
   if (!sops || nsops == 0) { errno = EINVAL; return -1; }
 
   LONG nsems = (LONG)o->hdr->size;
@@ -116,7 +116,7 @@ static inline int usem_op(int id, struct sembuf *sops, size_t nsops)
     }
     if (range) { errno = ERANGE; rc = -1; break; }
 
-    if (blocked < 0) {                       /* todo es posible: aplicar */
+    if (blocked < 0) {                       /* everything is possible: apply */
       for (size_t i = 0; i < nsops; ++i) {
         usem__s *s = &S[sops[i].sem_num];
         s->val = tmp[sops[i].sem_num];
@@ -133,7 +133,7 @@ static inline int usem_op(int id, struct sembuf *sops, size_t nsops)
     usem__s *w = &S[sops[blocked].sem_num];
     volatile LONG *cnt = sops[blocked].sem_op < 0 ? &w->ncnt : &w->zcnt;
     InterlockedIncrement(cnt);
-    uipc__sleep_obj(o);                      /* suelta el mutex y espera */
+    uipc__sleep_obj(o);                      /* releases the mutex and waits */
     InterlockedDecrement(cnt);
   }
   uipc__unlock_obj(o);
@@ -157,7 +157,7 @@ static inline int usem_ctl(int id, int num, int cmd, ...)
   if (!o) return -1;
 
   if (cmd == IPC_RMID) {
-    if (uipc__rep()) return 0;               /* replay: lo hara el padre */
+    if (uipc__rep()) return 0;               /* replay: the parent will do it */
     uipc__remove(o);
     return 0;
   }
@@ -172,7 +172,7 @@ static inline int usem_ctl(int id, int num, int cmd, ...)
     return -1;
   }
   if ((cmd == SETVAL && uipc__rep()) || (cmd == SETALL && uipc__rep()))
-    return 0;                                /* replay: no pisar el estado */
+    return 0;                                /* replay: do not clobber the state */
 
   uipc__enter(o);
   uipc__lock_obj(o);

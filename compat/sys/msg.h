@@ -1,4 +1,4 @@
-/* Shim opcional (-Icompat): <sys/msg.h> en Windows (System V IPC). */
+/* Optional shim (-Icompat): <sys/msg.h> on Windows (System V IPC). */
 #ifndef UNIXLIB_COMPAT_SYS_MSG_H
 #define UNIXLIB_COMPAT_SYS_MSG_H
 

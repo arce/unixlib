@@ -1,8 +1,8 @@
 #ifndef UNIXLIB_SIGDEFS_H
 #define UNIXLIB_SIGDEFS_H
 
-/* Constantes de señales que MinGW no define (numeracion de Linux).
- * No chocan con las del CRT de Windows (2,4,8,11,15,21,22). */
+/* Signal constants that MinGW does not define (Linux numbering).
+ * They do not clash with the Windows CRT ones (2,4,8,11,15,21,22). */
 
 #ifdef _WIN32
 
@@ -42,7 +42,7 @@
 #  define SIG_SETMASK  2
 #endif
 
-/* sa_flags (valores propios; solo SA_SIGINFO tiene efecto) */
+/* sa_flags (own values; only SA_SIGINFO has any effect) */
 #ifndef SA_SIGINFO
 #  define SA_NOCLDSTOP 0x01
 #  define SA_NOCLDWAIT 0x02

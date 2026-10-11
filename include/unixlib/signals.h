@@ -2,46 +2,46 @@
 #define UNIXLIB_SIGNALS_H
 
 /* ================================================================
- *  unixlib/signals.h - señales POSIX sobre Windows (header-only).
+ *  unixlib/signals.h - POSIX signals on Windows (header-only).
  *
  *  API prefijada: usig_signal, usig_sigaction, usig_sigprocmask,
  *    usig_sigsuspend, usig_sigpending, usig_sigemptyset/fillset/addset/
  *    delset/ismember, usig_pause, usig_alarm, usig_raise, usig_kill
- *  Macros POSIX con los nombres habituales (signal, sigaction, kill,
- *  raise, pause, alarm...); desactivar con UNIXLIB_NO_POSIX_NAMES.
+ *  POSIX macros with the usual names (signal, sigaction, kill,
+ *  raise, pause, alarm...); disable with UNIXLIB_NO_POSIX_NAMES.
  *
- *  Numeros (como Linux): SIGHUP 1, SIGINT 2, SIGQUIT 3, SIGKILL 9,
+ *  Numbers (as on Linux): SIGHUP 1, SIGINT 2, SIGQUIT 3, SIGKILL 9,
  *  SIGUSR1 10, SIGUSR2 12, SIGALRM 14, SIGTERM 15, SIGCHLD 17,
- *  SIGCONT 18, SIGSTOP 19 (+ SIGILL/SIGFPE/SIGSEGV/SIGABRT del CRT).
+ *  SIGCONT 18, SIGSTOP 19 (+ SIGILL/SIGFPE/SIGSEGV/SIGABRT from the CRT).
  *
- *  Se pueden capturar con signal()/sigaction():
+ *  These can be caught with signal()/sigaction():
  *    SIGHUP SIGINT SIGQUIT SIGUSR1 SIGUSR2 SIGALRM SIGTERM SIGCHLD
- *    SIGCONT SIGABRT                  (entre procesos y con raise)
- *    SIGILL SIGFPE SIGSEGV            (los entrega el CRT)
- *  SIGKILL no se captura; SIGSTOP no esta soportada (ENOSYS).
- *  Ctrl+C / Ctrl+Break llegan como SIGINT; cerrar la consola, cerrar
- *  sesion o apagar llegan como SIGTERM.
+ *    SIGCONT SIGABRT                  (between processes and with raise)
+ *    SIGILL SIGFPE SIGSEGV            (delivered by the CRT)
+ *  SIGKILL cannot be caught; SIGSTOP is not supported (ENOSYS).
+ *  Ctrl+C / Ctrl+Break arrive as SIGINT; closing the console, logging
+ *  off or shutting down arrive as SIGTERM.
  *
- *  Entre procesos: kill() funciona hacia hijos de fork() y hacia
- *  cualquier proceso que use unixlib y ya haya instalado un handler
- *  (o llamado a pause/sigsuspend/alarm). Si el destino no tiene buzon
- *  se aplica la accion por defecto: terminar (SIGCHLD/SIGCONT: ignorar).
- *  Una señal enviada a un hijo que aun arranca queda pendiente.
- *    kill(pid, 0)   existe el proceso?
- *    kill(-pid, s)  se aplica al proceso |pid|
- *    kill(0, s)     a todos los demas procesos con buzon unixlib
+ *  Between processes: kill() works towards children of fork() and towards
+ *  any process that uses unixlib and has already installed a handler
+ *  (or called pause/sigsuspend/alarm). If the target has no mailbox
+ *  the default action applies: terminate (SIGCHLD/SIGCONT: ignore).
+ *  A signal sent to a child that is still starting up stays pending.
+ *    kill(pid, 0)   does the process exist?
+ *    kill(-pid, s)  applies to process |pid|
+ *    kill(0, s)     to all other processes with a unixlib mailbox
  *
- *  Diferencias con POSIX (importantes):
- *   - El handler se ejecuta en un hilo vigilante, no interrumpe el hilo
- *     principal. Entregas y handlers van de uno en uno (en serie).
- *   - La mascara (sigprocmask) es de todo el proceso.
- *   - sa_mask, SA_RESTART, SA_RESETHAND, SA_NODEFER se ignoran;
- *     SA_SIGINFO entrega siginfo_t con solo si_signo.
- *   - SIGCHLD no se genera automaticamente al terminar un hijo.
- *   - pause()/sigsuspend() no pierden una señal entregada justo antes.
- *   - Sin handler, SIGTERM/SIGKILL... terminan el proceso y wait() lo
- *     informa con WIFSIGNALED/WTERMSIG.
- *  Si activas los macros, incluye este header DESPUES de <signal.h>.
+ *  Differences from POSIX (important):
+ *   - The handler runs in a watcher thread; it does not interrupt the
+ *     main thread. Deliveries and handlers run one at a time (serially).
+ *   - The mask (sigprocmask) is process-wide.
+ *   - sa_mask, SA_RESTART, SA_RESETHAND, SA_NODEFER are ignored;
+ *     SA_SIGINFO delivers a siginfo_t with only si_signo.
+ *   - SIGCHLD is not generated automatically when a child exits.
+ *   - pause()/sigsuspend() do not lose a signal delivered just before.
+ *   - Without a handler, SIGTERM/SIGKILL... terminate the process and wait()
+ *     reports it with WIFSIGNALED/WTERMSIG.
+ *  If you enable the macros, include this header AFTER <signal.h>.
  * ================================================================ */
 
 #include <signal.h>
@@ -49,19 +49,19 @@
 
 #ifdef _WIN32
 
-#include <unixlib/fork.h>   /* windows.h, pid_t, UFORK_SIGEXIT, buzon */
+#include <unixlib/fork.h>   /* windows.h, pid_t, UFORK_SIGEXIT, mailbox */
 
 typedef void (*usig_handler_t)(int);
 
 #ifndef _POSIX
-typedef _sigset_t sigset_t;           /* MinGW solo lo define con _POSIX */
+typedef _sigset_t sigset_t;           /* MinGW only defines it with _POSIX */
 #endif
 
 typedef struct {
   int   si_signo;
   int   si_errno;
   int   si_code;
-  pid_t si_pid;                       /* no disponible: 0 */
+  pid_t si_pid;                       /* not available: 0 */
   unsigned si_uid;
   void *si_addr;
   int   si_status;
@@ -81,7 +81,7 @@ struct sigaction {
 #  define STATUS_CONTROL_C_EXIT 0xC000013AUL
 #endif
 
-/* ---- implementacion ---- */
+/* ---- implementation ---- */
 #define USIG__N    32
 #define USIG__IGN  ((void *)(uintptr_t)1)
 
@@ -96,7 +96,7 @@ UNIXLIB_SHARED ULONGLONG usig__alarm_due = 0;
 
 static inline LONG usig__bit(int sig) { return (LONG)(1UL << sig); }
 
-static inline int usig__valid(int sig)       /* capturable por unixlib */
+static inline int usig__valid(int sig)       /* catchable by unixlib */
 {
   return sig == SIGHUP || sig == SIGINT || sig == SIGQUIT ||
          sig == SIGUSR1 || sig == SIGUSR2 || sig == SIGALRM ||
@@ -104,19 +104,19 @@ static inline int usig__valid(int sig)       /* capturable por unixlib */
          sig == SIGABRT;
 }
 
-static inline int usig__crt(int sig)         /* los entrega el CRT */
+static inline int usig__crt(int sig)         /* delivered by the CRT */
 {
   return sig == SIGILL || sig == SIGFPE || sig == SIGSEGV;
 }
 
 static inline void usig__default_action(int sig)
 {
-  if (sig == SIGCHLD || sig == SIGCONT) return;       /* ignorar */
-  /* Mismo codigo que usa kill(): el padre lo ve como WIFSIGNALED. */
+  if (sig == SIGCHLD || sig == SIGCONT) return;       /* ignore */
+  /* Same code that kill() uses: the parent sees it as WIFSIGNALED. */
   ExitProcess((UINT)UFORK_SIGEXIT(sig));
 }
 
-/* Ejecuta la accion de `sig` (sin mirar la mascara). */
+/* Runs the action for `sig` (without looking at the mask). */
 static inline void usig__run(int sig)
 {
   void *h = usig__h[sig];
@@ -130,7 +130,7 @@ static inline void usig__run(int sig)
   } else {
     ((usig_handler_t)h)(sig);
   }
-  if (usig__wake) SetEvent(usig__wake);               /* despierta pause() */
+  if (usig__wake) SetEvent(usig__wake);               /* wakes up pause() */
 }
 
 static inline void usig__dispatch(int sig)
@@ -143,7 +143,7 @@ static inline void usig__dispatch(int sig)
   usig__run(sig);
 }
 
-/* Entrega las pendientes que ya no estan bloqueadas. */
+/* Delivers the pending signals that are no longer blocked. */
 static inline void usig__flush(void)
 {
   for (;;) {
@@ -157,7 +157,7 @@ static inline void usig__flush(void)
   }
 }
 
-/* Hilo propio de Windows para eventos de consola. */
+/* Windows' own thread for console events. */
 static inline BOOL WINAPI usig__console_handler(DWORD ev)
 {
   int sig;
@@ -176,7 +176,7 @@ static inline BOOL WINAPI usig__console_handler(DWORD ev)
   }
   void *h = usig__h[sig];
   if (h == USIG__IGN) return TRUE;
-  if (h == NULL) return FALSE;                        /* accion por defecto */
+  if (h == NULL) return FALSE;                        /* default action */
   usig__dispatch(sig);
   return TRUE;
 }
@@ -187,7 +187,7 @@ static inline BOOL CALLBACK usig__init_cb(PINIT_ONCE o, PVOID p, PVOID *c)
   usig__wake = CreateEventW(NULL, FALSE, FALSE, NULL);
   ufork__deliver_hook = usig__dispatch;
   SetConsoleCtrlHandler(usig__console_handler, TRUE);
-  ufork__start_sig_watcher();                         /* buzon propio */
+  ufork__start_sig_watcher();                         /* own mailbox */
   return TRUE;
 }
 
@@ -197,8 +197,8 @@ static inline void usig__init(void)
   InitOnceExecuteOnce(&usig__once, usig__init_cb, NULL, NULL);
 }
 
-/* Si este objeto esta enlazado, el hilo vigilante de fork.h puede
- * entregar señales con handler desde el primer momento. */
+/* If this object is linked in, the watcher thread of fork.h can
+ * deliver signals with handlers from the very first moment. */
 __attribute__((constructor)) static void usig__ctor(void)
 {
   ufork__deliver_hook = usig__dispatch;
@@ -234,7 +234,7 @@ static inline int usig_sigaction(int sig, const struct sigaction *act,
 {
   if (sig == SIGKILL || sig == SIGSTOP) { errno = EINVAL; return -1; }
 
-  if (usig__crt(sig)) {                 /* SIGILL/SIGFPE/SIGSEGV: del CRT */
+  if (usig__crt(sig)) {                 /* SIGILL/SIGFPE/SIGSEGV: from the CRT */
     void (*prev)(int);
     if (act) {
       prev = signal(sig, (act->sa_flags & SA_SIGINFO) ? SIG_DFL
@@ -260,7 +260,7 @@ static inline int usig_sigaction(int sig, const struct sigaction *act,
     usig__f[sig] = act->sa_flags;
     InterlockedExchangePointer((PVOID volatile *)&usig__h[sig],
                                (PVOID)act->sa_handler);
-    /* abort() del CRT tambien debe llegar al handler de SIGABRT. */
+    /* The CRT's abort() must also reach the SIGABRT handler. */
     if (sig == SIGABRT)
       signal(SIGABRT, (act->sa_flags & SA_SIGINFO) ? SIG_DFL
                                                    : act->sa_handler);
@@ -331,7 +331,7 @@ static inline VOID CALLBACK usig__alarm_cb(PVOID p, BOOLEAN f)
   usig__dispatch(SIGALRM);
 }
 
-/* Devuelve los segundos que faltaban de la alarma anterior. */
+/* Returns the seconds remaining on the previous alarm. */
 static inline unsigned usig_alarm(unsigned seconds)
 {
   usig__init();
@@ -356,11 +356,11 @@ static inline unsigned usig_alarm(unsigned seconds)
 /* ---------------------------------------------------------------- */
 static inline int usig_raise(int sig)
 {
-  if (usig__crt(sig)) return raise(sig);                /* raise del CRT */
-  if (sig == SIGKILL) usig__default_action(sig);        /* no capturable */
+  if (usig__crt(sig)) return raise(sig);                /* the CRT's raise */
+  if (sig == SIGKILL) usig__default_action(sig);        /* cannot be caught */
   if (!usig__valid(sig)) { errno = EINVAL; return -1; }
   usig__init();
-  usig__dispatch(sig);                                  /* sincrono */
+  usig__dispatch(sig);                                  /* synchronous */
   return 0;
 }
 
@@ -379,7 +379,7 @@ static inline int usig_kill(pid_t pid, int sig)
 {
   if (sig < 0 || sig >= USIG__N) { errno = EINVAL; return -1; }
 
-  if (pid == 0) {                       /* a todos los procesos con buzon */
+  if (pid == 0) {                       /* to all processes with a mailbox */
     if (sig == 0) return 0;
     if (!usig__valid(sig)) { errno = EINVAL; return -1; }
     HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -393,7 +393,7 @@ static inline int usig_kill(pid_t pid, int sig)
     CloseHandle(s);
     return 0;
   }
-  if (pid < 0) pid = -pid;              /* kill(-pid, ...): grupo del hijo */
+  if (pid < 0) pid = -pid;              /* kill(-pid, ...): the child's group */
 
   if (sig == 0) {
     HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
@@ -417,7 +417,7 @@ static inline int usig_kill(pid_t pid, int sig)
   if (sig == SIGKILL || usig__crt(sig)) return usig__terminate(pid, sig);
   if (ufork__send_signal(pid, sig)) return 0;
 
-  /* Destino sin buzon: accion por defecto. */
+  /* Target without a mailbox: default action. */
   if (sig == SIGCHLD || sig == SIGCONT) {
     return usig_kill(pid, 0);
   }
